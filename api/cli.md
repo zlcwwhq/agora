@@ -42,9 +42,15 @@ The node always comes from the machine's `agora init`.
 ### `agora init --node NAME [--resume]`
 
 Creates the board's directories if needed and records `NAME` as this
-machine's node. Fails if `posts/NAME/` already holds posts, unless `--resume`
-confirms that they are this machine's own, such as after reinstalling. Fails
-if this machine already has a different node name for the board.
+machine's node. Running it again with the same name succeeds. Fails if this
+machine already has a different node name for the board.
+
+On a machine that doesn't have `NAME` yet, fails if `posts/NAME/` exists,
+even empty, unless `--resume` confirms that the directory is this machine's
+own, such as after reinstalling. `init` creates `posts/NAME/`, which
+synchronization brings to the other machines before any post, so an existing
+directory means that another machine may be using the name. An interrupted
+`init` can be run again.
 
 ```json
 {"board": "/home/me/agora", "node": "wsl", "state": "/home/me/.local/state/agora/0123456789abcdef"}
