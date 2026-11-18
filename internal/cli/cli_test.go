@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/zlcwwhq/agora/internal/testutil"
 )
 
 // machine is one machine with its own copy of a board and its own state.
@@ -19,25 +23,36 @@ type machine struct {
 	t    *testing.T
 	root string
 	env  map[string]string
+	goos string
 	mu   sync.Mutex
 	now  time.Time
+}
+
+// unreadable fails the test if a command reads standard input without -f -.
+type unreadable struct{ t *testing.T }
+
+func (u unreadable) Read([]byte) (int, error) {
+	u.t.Error("a command read standard input without -f -")
+	return 0, io.EOF
 }
 
 var zone = time.FixedZone("CET", 3600)
 
 func newMachine(t *testing.T, node string) *machine {
 	t.Helper()
-	dir := t.TempDir()
+	dir := testutil.TempDir(t)
 	m := &machine{
 		t:    t,
 		root: filepath.Join(dir, "agora"),
 		env: map[string]string{
 			"HOME":           dir,
+			"USERPROFILE":    dir,
 			"AGORA_DIR":      filepath.Join(dir, "agora"),
 			"XDG_STATE_HOME": filepath.Join(dir, "state"),
 			"AGORA_AUTHOR":   "codex/" + node + "-session",
 		},
-		now: time.Date(2026, 11, 18, 10, 0, 0, 0, zone),
+		goos: runtime.GOOS,
+		now:  time.Date(2026, 11, 18, 10, 0, 0, 0, zone),
 	}
 	if node != "" {
 		m.ok("init", "--node", node)
@@ -56,12 +71,13 @@ func (m *machine) clock() time.Time {
 func (m *machine) runIn(stdin *string, args ...string) (string, string, int) {
 	var out, errOut bytes.Buffer
 	env := Env{
-		Args:            args,
-		Getenv:          func(k string) string { return m.env[k] },
-		StdinIsTerminal: stdin == nil,
-		Stdout:          &out,
-		Stderr:          &errOut,
-		Now:             m.clock,
+		Args:   args,
+		Getenv: func(k string) string { return m.env[k] },
+		GOOS:   m.goos,
+		Stdin:  unreadable{m.t},
+		Stdout: &out,
+		Stderr: &errOut,
+		Now:    m.clock,
 	}
 	if stdin != nil {
 		env.Stdin = strings.NewReader(*stdin)
@@ -146,7 +162,7 @@ func TestPostReplyShowListSearchTags(t *testing.T) {
 	}
 	body := "I think 冲突 should only warn.\n"
 	r1 := m.runIn
-	out, errOut, code := r1(&body, "reply", root, "-t", "review", "--json")
+	out, errOut, code := r1(&body, "reply", root, "-t", "review", "-f", "-", "--json")
 	if code != 0 || !strings.Contains(out, `"id": "wsl-2"`) {
 		t.Fatalf("reply from standard input: %d %s %s", code, out, errOut)
 	}
@@ -470,5 +486,82 @@ func TestParseSince(t *testing.T) {
 		if _, err := parseSince(s); err == nil {
 			t.Errorf("parseSince(%q) succeeded", s)
 		}
+	}
+}
+
+func TestBodyInput(t *testing.T) {
+	m := newMachine(t, "wsl")
+	body := func(id string) string {
+		var show struct{ Posts []postJSON }
+		m.json(&show, "show", id)
+		for _, p := range show.Posts {
+			if p.ID == id {
+				return p.Body
+			}
+		}
+		t.Fatalf("%s isn't in its thread", id)
+		return ""
+	}
+
+	// A file saved on Windows, with a byte order mark and CRLF.
+	file := filepath.Join(testutil.TempDir(t), "body.md")
+	if err := os.WriteFile(file, []byte("\xef\xbb\xbf第一行\r\nsecond\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := m.post("--title", "from a file", "-f", file)
+	if got := body(id); got != "第一行\nsecond\n" {
+		t.Fatalf("body from a file: %q", got)
+	}
+
+	stdin := "from standard input\r\n"
+	out, errOut, code := m.runIn(&stdin, "reply", id, "-f", "-", "--json")
+	if code != 0 {
+		t.Fatalf("-f -: %s", errOut)
+	}
+	var r struct{ ID string }
+	if err := json.Unmarshal([]byte(out), &r); err != nil || body(r.ID) != "from standard input\n" {
+		t.Fatalf("body from standard input: %q %v", body(r.ID), err)
+	}
+
+	// Without -m or -f, standard input isn't read, and the body is empty.
+	if id := m.post("--title", "no body"); body(id) != "" {
+		t.Fatalf("implicit body: %q", body(id))
+	}
+
+	bad := filepath.Join(testutil.TempDir(t), "latin1.txt")
+	if err := os.WriteFile(bad, []byte("caf\xe9"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"post", "--title", "t", "-m", "x", "-f", file},
+		{"post", "--title", "t", "-m", "caf\xe9"},
+		{"post", "--title", "caf\xe9"},
+		{"post", "--title", "t", "-f", bad},
+		{"post", "--title", "t", "-f", ""},
+	} {
+		if _, _, code := m.run(args...); code != 2 {
+			t.Errorf("agora %q: status %d, want 2", args, code)
+		}
+	}
+	if _, _, code := m.run("post", "--title", "t", "-f", filepath.Join(testutil.TempDir(t), "missing")); code != 1 {
+		t.Errorf("a missing file: status %d, want 1", code)
+	}
+}
+
+func TestDefaultLocationsOnWindows(t *testing.T) {
+	m := newMachine(t, "")
+	profile, local := filepath.Join(testutil.TempDir(t), "profile"), filepath.Join(testutil.TempDir(t), "local")
+	m.goos = "windows"
+	m.env = map[string]string{"USERPROFILE": profile, "LOCALAPPDATA": local, "HOME": "/elsewhere", "AGORA_AUTHOR": "codex/s"}
+	var init struct{ Board, Node, State string }
+	m.json(&init, "init", "--node", "win")
+	if init.Board != filepath.Join(profile, "agora") {
+		t.Fatalf("board %s, want it under %%USERPROFILE%%", init.Board)
+	}
+	if rel, err := filepath.Rel(filepath.Join(local, "agora"), init.State); err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("state %s, want it under %%LOCALAPPDATA%%", init.State)
+	}
+	if m.post("--title", "hello from Windows") != "win-1" {
+		t.Fatal("posting with default locations")
 	}
 }

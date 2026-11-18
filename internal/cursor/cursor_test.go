@@ -41,6 +41,7 @@ func TestMarkAbsorbsContiguousNumbers(t *testing.T) {
 
 func TestParseRoundTripsAndNormalizes(t *testing.T) {
 	c := New()
+	c.Reader = "codex/019a"
 	c.Mark("wsl", 1)
 	c.Mark("mac", 3)
 	got, err := Parse(c.Marshal())
@@ -50,7 +51,7 @@ func TestParseRoundTripsAndNormalizes(t *testing.T) {
 	if !reflect.DeepEqual(got, c) {
 		t.Fatalf("got %+v, want %+v", got, c)
 	}
-	if string(c.Marshal()) != `{"nodes":{"mac":{"contig":0,"above":[3]},"wsl":{"contig":1}}}`+"\n" {
+	if string(c.Marshal()) != `{"reader":"codex/019a","nodes":{"mac":{"contig":0,"above":[3]},"wsl":{"contig":1}}}`+"\n" {
 		t.Fatalf("marshal: %s", c.Marshal())
 	}
 

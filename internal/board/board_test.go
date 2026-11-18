@@ -4,17 +4,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/zlcwwhq/agora/internal/cursor"
 	"github.com/zlcwwhq/agora/internal/post"
+	"github.com/zlcwwhq/agora/internal/testutil"
 )
 
 func open(t *testing.T) *Board {
 	t.Helper()
-	dir := t.TempDir()
+	dir := testutil.TempDir(t)
 	b, err := Open(filepath.Join(dir, "agora"), filepath.Join(dir, "state"))
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +42,7 @@ func TestStateIsOutsideTheRoot(t *testing.T) {
 }
 
 func TestOpenResolvesSymbolicLinks(t *testing.T) {
-	dir := t.TempDir()
+	dir := testutil.TempDir(t)
 	real := filepath.Join(dir, "real")
 	if err := os.Mkdir(real, 0o755); err != nil {
 		t.Fatal(err)
@@ -61,16 +63,41 @@ func TestOpenResolvesSymbolicLinks(t *testing.T) {
 	}
 }
 
-func TestStateHome(t *testing.T) {
+func TestHomeAndStateHome(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	if got, _ := StateHome(env(map[string]string{"XDG_STATE_HOME": "/x", "HOME": "/h"})); got != "/x" {
-		t.Fatal(got)
+	// Absolute on whichever system runs the test.
+	abs := func(name string) string { return filepath.Join(testutil.TempDir(t), name) }
+	xdg, home, profile, local := abs("xdg"), abs("home"), abs("profile"), abs("local")
+	all := map[string]string{"XDG_STATE_HOME": xdg, "HOME": home, "USERPROFILE": profile, "LOCALAPPDATA": local}
+	noXDG := map[string]string{"XDG_STATE_HOME": "relative", "HOME": home, "USERPROFILE": profile, "LOCALAPPDATA": local}
+
+	for _, c := range []struct {
+		goos      string
+		env       map[string]string
+		home      string
+		stateHome string
+	}{
+		{"linux", all, home, xdg},
+		{"darwin", noXDG, home, filepath.Join(home, ".local", "state")},
+		{"windows", all, profile, xdg},
+		{"windows", noXDG, profile, local},
+	} {
+		if got, err := Home(env(c.env), c.goos); err != nil || got != c.home {
+			t.Errorf("%s: Home = %q, %v; want %q", c.goos, got, err, c.home)
+		}
+		if got, err := StateHome(env(c.env), c.goos); err != nil || got != c.stateHome {
+			t.Errorf("%s: StateHome = %q, %v; want %q", c.goos, got, err, c.stateHome)
+		}
 	}
-	if got, _ := StateHome(env(map[string]string{"XDG_STATE_HOME": "rel", "HOME": "/h"})); got != filepath.Join("/h", ".local", "state") {
-		t.Fatal(got)
+	// Windows never falls back to roaming or Unix locations.
+	if _, err := StateHome(env(map[string]string{"HOME": home, "APPDATA": abs("roaming")}), "windows"); err == nil {
+		t.Error("Windows state without LOCALAPPDATA")
 	}
-	if _, err := StateHome(env(nil)); err == nil {
-		t.Fatal("no error without HOME")
+	if _, err := Home(env(map[string]string{"HOME": home}), "windows"); err == nil {
+		t.Error("Windows home from HOME")
+	}
+	if _, err := StateHome(env(nil), "linux"); err == nil {
+		t.Error("no error without HOME")
 	}
 }
 
@@ -116,7 +143,7 @@ func TestInitRefusesANameInUse(t *testing.T) {
 	}
 
 	// A second machine whose copy of the board has gpu's posts.
-	b, err := Open(other.Root, filepath.Join(t.TempDir(), "state"))
+	b, err := Open(other.Root, filepath.Join(testutil.TempDir(t), "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,8 +197,8 @@ func TestPublishNumbersAndNeverReuses(t *testing.T) {
 }
 
 func TestPublishSucceedsOnceLinked(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("root ignores directory permissions")
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("directory permissions don't stop writes for root or on Windows")
 	}
 	b := open(t)
 	if err := b.Init("wsl", false); err != nil {
@@ -298,11 +325,23 @@ func TestCursorStorage(t *testing.T) {
 		t.Fatal("readers share a cursor")
 	}
 
-	// Both parts may contain '-', which mustn't make readers collide.
-	if err := b.SaveCursor("claude-code", "x", c); err != nil {
-		t.Fatal(err)
-	}
-	if _, existed, _ := b.LoadCursor("claude", "code-x"); existed {
-		t.Fatal("claude-code/x and claude/code-x share a cursor")
+	// Readers stay apart whether their names differ by '-' placement or by
+	// case, which macOS and Windows ignore by default, and names that
+	// Windows reserves work.
+	for _, pair := range [][2][2]string{
+		{{"claude-code", "x"}, {"claude", "code-x"}},
+		{{"codex", "ABC"}, {"codex", "abc"}},
+		{{"codex", "CON"}, {"codex", "con.txt"}},
+	} {
+		first, second := pair[0], pair[1]
+		if err := b.SaveCursor(first[0], first[1], c); err != nil {
+			t.Fatal(err)
+		}
+		if got, existed, err := b.LoadCursor(first[0], first[1]); err != nil || !existed || got.Reader != first[0]+"/"+first[1] {
+			t.Fatalf("%v: %+v %v %v", first, got, existed, err)
+		}
+		if _, existed, _ := b.LoadCursor(second[0], second[1]); existed {
+			t.Fatalf("%v and %v share a cursor", first, second)
+		}
 	}
 }

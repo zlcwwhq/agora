@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Version is the format version that this package reads and writes.
@@ -52,6 +53,9 @@ func (p Post) Validate() error {
 	}
 	if !ValidSession(p.Session) {
 		return fmt.Errorf("invalid session %q", p.Session)
+	}
+	if !utf8.ValidString(p.Title) || !utf8.ValidString(p.Body) {
+		return errors.New("the title and body must be valid UTF-8")
 	}
 	if _, err := p.CreatedTime(); err != nil {
 		return fmt.Errorf("invalid created time %q: want RFC 3339", p.Created)
@@ -131,6 +135,9 @@ var keyPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // Parse reads a post file. Unknown keys are ignored, and tags that aren't
 // valid are dropped.
 func Parse(data []byte) (Post, error) {
+	if !utf8.Valid(data) {
+		return Post{}, errors.New("not valid UTF-8")
+	}
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {

@@ -4,23 +4,20 @@ package main
 
 import (
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/zlcwwhq/agora/internal/cli"
 )
 
 func main() {
-	terminal := true
-	if info, err := os.Stdin.Stat(); err == nil {
-		terminal = info.Mode()&os.ModeCharDevice != 0
-	}
 	os.Exit(cli.Run(cli.Env{
-		Args:            os.Args[1:],
-		Getenv:          os.Getenv,
-		Stdin:           os.Stdin,
-		StdinIsTerminal: terminal,
-		Stdout:          os.Stdout,
-		Stderr:          os.Stderr,
-		Now:             time.Now,
+		Args:   os.Args[1:],
+		Getenv: os.Getenv,
+		GOOS:   runtime.GOOS,
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+		Now:    time.Now,
 	}))
 }

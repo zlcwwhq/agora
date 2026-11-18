@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/zlcwwhq/agora/internal/post"
+	"github.com/zlcwwhq/agora/internal/testutil"
 )
 
 // fakeBoard holds post files in memory.
@@ -75,7 +76,7 @@ func replyPost(s, thread, to, created, body string, tags ...string) post.Post {
 
 func openIndex(t *testing.T) (*DB, string) {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "index.db")
+	p := filepath.Join(testutil.TempDir(t), "index.db")
 	d, err := Open(p)
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +196,7 @@ func TestOpenRebuildsAnotherVersion(t *testing.T) {
 }
 
 func TestConcurrentOpenCreatesTheSchemaOnce(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "index.db")
+	p := filepath.Join(testutil.TempDir(t), "index.db")
 	errs := make(chan error, 8)
 	for range 8 {
 		go func() {

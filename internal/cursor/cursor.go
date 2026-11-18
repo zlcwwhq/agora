@@ -17,7 +17,10 @@ type Range struct {
 
 // Cursor is what a reader has seen of every node.
 type Cursor struct {
-	Nodes map[string]*Range `json:"nodes"`
+	// Reader is the reader's harness/session, recorded because the cursor's
+	// file is named by a hash of it.
+	Reader string            `json:"reader,omitempty"`
+	Nodes  map[string]*Range `json:"nodes"`
 }
 
 // New returns a cursor that has seen nothing.

@@ -15,8 +15,19 @@ var (
 	sessionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 )
 
+// reserved are the device names that Windows reserves, in any case and with
+// any extension, which therefore can't name synchronized directories.
+var reserved = func() map[string]bool {
+	m := map[string]bool{"con": true, "prn": true, "aux": true, "nul": true}
+	for i := '0'; i <= '9'; i++ {
+		m["com"+string(i)] = true
+		m["lpt"+string(i)] = true
+	}
+	return m
+}()
+
 // ValidNode reports whether s is a valid node name.
-func ValidNode(s string) bool { return nodePattern.MatchString(s) }
+func ValidNode(s string) bool { return nodePattern.MatchString(s) && !reserved[s] }
 
 // ValidHarness reports whether s is a valid harness name.
 func ValidHarness(s string) bool { return harnessPattern.MatchString(s) }
@@ -121,6 +132,12 @@ func NormalizeTags(tags []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// NormalizeBody drops a leading byte order mark and converts \r\n line
+// endings to \n, as writers do before rendering a body.
+func NormalizeBody(s string) string {
+	return strings.ReplaceAll(strings.TrimPrefix(s, "\uFEFF"), "\r\n", "\n")
 }
 
 // Fold case-folds s for searching. It maps each rune on its own, so the result

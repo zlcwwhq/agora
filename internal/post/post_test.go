@@ -201,3 +201,43 @@ func TestAuthor(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestReservedNodeNames(t *testing.T) {
+	for _, s := range []string{"con", "prn", "aux", "nul", "com0", "com9", "lpt1"} {
+		if ValidNode(s) {
+			t.Errorf("ValidNode(%q) accepted a name that Windows reserves", s)
+		}
+		if _, err := ParseID(s + "-1"); err == nil {
+			t.Errorf("ParseID accepted %s-1", s)
+		}
+	}
+	for _, s := range []string{"cons", "com10", "lpt", "auxx", "nulls"} {
+		if !ValidNode(s) {
+			t.Errorf("ValidNode(%q) refused an ordinary name", s)
+		}
+	}
+}
+
+func TestUTF8(t *testing.T) {
+	p := root()
+	p.Body = "bad \xff byte"
+	if _, err := Render(p); err == nil {
+		t.Fatal("rendered a body that isn't UTF-8")
+	}
+	p = root()
+	p.Title = "bad \xc3"
+	if _, err := Render(p); err == nil {
+		t.Fatal("rendered a title that isn't UTF-8")
+	}
+	data, _ := Render(root())
+	data = append(data, 0xff)
+	if _, err := Parse(data); err == nil {
+		t.Fatal("parsed a file that isn't UTF-8")
+	}
+}
+
+func TestNormalizeBody(t *testing.T) {
+	if got := NormalizeBody("\uFEFF第一行\r\nsecond\r\n\uFEFF"); got != "第一行\nsecond\n\uFEFF" {
+		t.Fatalf("got %q", got)
+	}
+}

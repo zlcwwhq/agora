@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/zlcwwhq/agora/internal/board"
 	"github.com/zlcwwhq/agora/internal/index"
@@ -23,12 +24,14 @@ import (
 // Env is everything a command uses from its process.
 type Env struct {
 	// Args are the arguments after the program name.
-	Args            []string
-	Getenv          func(string) string
-	Stdin           io.Reader
-	StdinIsTerminal bool
-	Stdout, Stderr  io.Writer
-	Now             func() time.Time
+	Args   []string
+	Getenv func(string) string
+	// GOOS is the operating system, which decides where home and state
+	// directories are.
+	GOOS           string
+	Stdin          io.Reader
+	Stdout, Stderr io.Writer
+	Now            func() time.Time
 }
 
 // usageError is incorrect usage, which exits with status 2.
@@ -54,6 +57,7 @@ type opts struct {
 	title     string
 	tags      stringList
 	message   string
+	file      string
 	author    string
 	limit     int
 	inTitle   bool
@@ -75,16 +79,18 @@ var commands = []command{
 			fs.BoolVar(&o.resume, "resume", false, "the node's existing posts are this machine's own")
 		}},
 	{name: "whoami", summary: "show the identity that commands use", run: runWhoami},
-	{name: "post", args: "--title TITLE [-t TAG]... [-m BODY]", summary: "start a thread", run: runPost,
+	{name: "post", args: "--title TITLE [-t TAG]... [-m BODY | -f FILE]", summary: "start a thread", run: runPost,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.title, "title", "", "the thread's `title`")
 			fs.Var(&o.tags, "t", "a `tag`, repeatable")
-			fs.StringVar(&o.message, "m", "", "the `body`; default: standard input")
+			fs.StringVar(&o.message, "m", "", "the `body`")
+			fs.StringVar(&o.file, "f", "", "read the body from `FILE`; - is standard input")
 		}},
-	{name: "reply", args: "ID [-t TAG]... [-m BODY]", summary: "reply to a post", run: runReply, positional: 1,
+	{name: "reply", args: "ID [-t TAG]... [-m BODY | -f FILE]", summary: "reply to a post", run: runReply, positional: 1,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.Var(&o.tags, "t", "a `tag`, repeatable")
-			fs.StringVar(&o.message, "m", "", "the `body`; default: standard input")
+			fs.StringVar(&o.message, "m", "", "the `body`")
+			fs.StringVar(&o.file, "f", "", "read the body from `FILE`; - is standard input")
 		}},
 	{name: "show", args: "ID", summary: "show the thread that contains a post", run: runShow, positional: 1},
 	{name: "list", args: "[-t TAG]... [--author AUTHOR] [-n N]", summary: "list threads by recent activity", run: runList,
@@ -228,13 +234,13 @@ func (c *ctx) board() (*board.Board, error) {
 		root = c.env.Getenv("AGORA_DIR")
 	}
 	if root == "" {
-		home := c.env.Getenv("HOME")
-		if home == "" {
-			return nil, errors.New("can't locate the board: pass --board, or set AGORA_DIR or HOME")
+		home, err := board.Home(c.env.Getenv, c.env.GOOS)
+		if err != nil {
+			return nil, fmt.Errorf("can't locate the board: pass --board or set AGORA_DIR (%w)", err)
 		}
 		root = filepath.Join(home, "agora")
 	}
-	stateHome, err := board.StateHome(c.env.Getenv)
+	stateHome, err := board.StateHome(c.env.Getenv, c.env.GOOS)
 	if err != nil {
 		return nil, err
 	}
@@ -338,19 +344,39 @@ func (c *ctx) tags() ([]string, error) {
 	return tags, nil
 }
 
-// body returns the body from -m or standard input, and whether one was given.
-func (c *ctx) body() (string, bool, error) {
-	if c.o.set["m"] {
-		return c.o.message, true, nil
+// body returns the body from -m or -f, normalized, or the empty string.
+// Standard input is read only for -f -, so that a command never waits on an
+// input that nobody closes.
+func (c *ctx) body() (string, error) {
+	var body string
+	switch {
+	case c.o.set["m"] && c.o.set["f"]:
+		return "", usagef("-m and -f exclude each other")
+	case c.o.set["m"]:
+		body = c.o.message
+	case c.o.file == "-":
+		if c.env.Stdin == nil {
+			return "", errors.New("no standard input")
+		}
+		data, err := io.ReadAll(c.env.Stdin)
+		if err != nil {
+			return "", err
+		}
+		body = string(data)
+	case c.o.set["f"]:
+		if c.o.file == "" {
+			return "", usagef("-f needs a file, or - for standard input")
+		}
+		data, err := os.ReadFile(c.o.file)
+		if err != nil {
+			return "", err
+		}
+		body = string(data)
 	}
-	if c.env.StdinIsTerminal || c.env.Stdin == nil {
-		return "", false, nil
+	if !utf8.ValidString(body) {
+		return "", usagef("the body isn't valid UTF-8; save it as UTF-8 and pass it with -f")
 	}
-	data, err := io.ReadAll(c.env.Stdin)
-	if err != nil {
-		return "", false, err
-	}
-	return string(data), true, nil
+	return post.NormalizeBody(body), nil
 }
 
 func (c *ctx) filter() (index.Filter, error) {
@@ -456,11 +482,14 @@ func runPost(c *ctx, _ []string) error {
 	if strings.ContainsAny(title, "\r\n") {
 		return usagef("a title is a single line")
 	}
+	if !utf8.ValidString(title) {
+		return usagef("the title isn't valid UTF-8")
+	}
 	tags, err := c.tags()
 	if err != nil {
 		return err
 	}
-	body, _, err := c.body()
+	body, err := c.body()
 	if err != nil {
 		return err
 	}
@@ -479,12 +508,12 @@ func runReply(c *ctx, args []string) error {
 	if err != nil {
 		return err
 	}
-	body, _, err := c.body()
+	body, err := c.body()
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(body) == "" {
-		return usagef("a reply needs a body: pass -m or write it to standard input")
+		return usagef("a reply needs a body: pass -m BODY or -f FILE")
 	}
 	idx, err := c.index()
 	if err != nil {

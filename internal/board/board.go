@@ -31,16 +31,37 @@ type Board struct {
 	State string
 }
 
-// StateHome returns the base of state directories: $XDG_STATE_HOME if it is
-// absolute, else ~/.local/state.
-func StateHome(getenv func(string) string) (string, error) {
+// Home returns the home directory on goos: %USERPROFILE% on Windows, else
+// $HOME.
+func Home(getenv func(string) string, goos string) (string, error) {
+	key := "HOME"
+	if goos == "windows" {
+		key = "USERPROFILE"
+	}
+	if home := getenv(key); filepath.IsAbs(home) {
+		return home, nil
+	}
+	return "", fmt.Errorf("can't locate the home directory: %s isn't an absolute path", key)
+}
+
+// StateHome returns the base of state directories on goos: $XDG_STATE_HOME if
+// it is absolute, else %LOCALAPPDATA% on Windows, which stays on the machine,
+// and ~/.local/state elsewhere.
+func StateHome(getenv func(string) string, goos string) (string, error) {
 	if s := getenv("XDG_STATE_HOME"); filepath.IsAbs(s) {
 		return s, nil
 	}
-	if home := getenv("HOME"); filepath.IsAbs(home) {
-		return filepath.Join(home, ".local", "state"), nil
+	if goos == "windows" {
+		if s := getenv("LOCALAPPDATA"); filepath.IsAbs(s) {
+			return s, nil
+		}
+		return "", errors.New("can't locate the state directory: neither XDG_STATE_HOME nor LOCALAPPDATA is an absolute path")
 	}
-	return "", errors.New("can't locate the state directory: neither XDG_STATE_HOME nor HOME is an absolute path")
+	home, err := Home(getenv, goos)
+	if err != nil {
+		return "", fmt.Errorf("can't locate the state directory: %w", err)
+	}
+	return filepath.Join(home, ".local", "state"), nil
 }
 
 // Open returns the board at root, whose state is beneath stateHome. The board
@@ -90,7 +111,7 @@ func (b *Board) IndexPath() string { return filepath.Join(b.State, "index.db") }
 
 // Node returns this machine's node name, or ErrNotInitialized.
 func (b *Board) Node() (string, error) {
-	data, err := os.ReadFile(filepath.Join(b.State, "node"))
+	data, err := readFile(filepath.Join(b.State, "node"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", ErrNotInitialized
 	}
@@ -163,7 +184,7 @@ func (b *Board) highest(node string) (int, error) {
 }
 
 func (b *Board) highwater() (int, error) {
-	data, err := os.ReadFile(filepath.Join(b.State, "highwater"))
+	data, err := readFile(filepath.Join(b.State, "highwater"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
@@ -332,16 +353,19 @@ func (b *Board) Scan() ([]File, error) {
 
 // Read returns the contents of a file that Scan listed.
 func (b *Board) Read(path string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(b.Root, filepath.FromSlash(path)))
+	return readFile(filepath.Join(b.Root, filepath.FromSlash(path)))
 }
 
+// cursorPath names a reader's cursor by a hash, which keeps readers apart on
+// file systems that ignore case and avoids names that Windows reserves.
 func (b *Board) cursorPath(harness, session string) string {
-	return filepath.Join(b.State, "cursors", harness, session+".json")
+	sum := sha256.Sum256([]byte(harness + "/" + session))
+	return filepath.Join(b.State, "cursors", hex.EncodeToString(sum[:8])+".json")
 }
 
 // LoadCursor returns the reader's cursor and whether it existed.
 func (b *Board) LoadCursor(harness, session string) (*cursor.Cursor, bool, error) {
-	data, err := os.ReadFile(b.cursorPath(harness, session))
+	data, err := readFile(b.cursorPath(harness, session))
 	if errors.Is(err, fs.ErrNotExist) {
 		return cursor.New(), false, nil
 	}
@@ -352,6 +376,10 @@ func (b *Board) LoadCursor(harness, session string) (*cursor.Cursor, bool, error
 	if err != nil {
 		return nil, false, fmt.Errorf("%s: %w", b.cursorPath(harness, session), err)
 	}
+	if c.Reader != "" && c.Reader != harness+"/"+session {
+		// Another reader's cursor under a colliding hash: start afresh.
+		return cursor.New(), false, nil
+	}
 	return c, true, nil
 }
 
@@ -361,6 +389,7 @@ func (b *Board) SaveCursor(harness, session string, c *cursor.Cursor) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	c.Reader = harness + "/" + session
 	return writeFileAtomic(path, c.Marshal())
 }
 
@@ -380,7 +409,7 @@ func writeFileAtomic(path string, data []byte) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(tmp, path)
+		err = rename(tmp, path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
