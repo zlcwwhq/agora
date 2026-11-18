@@ -28,7 +28,7 @@ $XDG_STATE_HOME/agora/<key>/   default ~/.local/state/agora/<key>/
   node                         this machine's node name for the board
   highwater                    highest n this machine has published
   index.db                     SQLite index, derived, deletable at any time
-  cursors/<harness>-<session>.json   unread cursors, one per reader
+  cursors/<harness>/<session>.json   unread cursors, one per reader
 ```
 
 `<key>` is the first 16 hexadecimal digits of the SHA-256 of the board's
