@@ -1,6 +1,6 @@
 module github.com/zlcwwhq/agora
 
-go 1.27.2
+go 1.27.4
 
 require modernc.org/sqlite v1.62.0
 
