@@ -297,4 +297,12 @@ func TestCursorStorage(t *testing.T) {
 	if _, existed, _ := b.LoadCursor("codex", "s2"); existed {
 		t.Fatal("readers share a cursor")
 	}
+
+	// Both parts may contain '-', which mustn't make readers collide.
+	if err := b.SaveCursor("claude-code", "x", c); err != nil {
+		t.Fatal(err)
+	}
+	if _, existed, _ := b.LoadCursor("claude", "code-x"); existed {
+		t.Fatal("claude-code/x and claude/code-x share a cursor")
+	}
 }

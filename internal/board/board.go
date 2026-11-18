@@ -336,7 +336,7 @@ func (b *Board) Read(path string) ([]byte, error) {
 }
 
 func (b *Board) cursorPath(harness, session string) string {
-	return filepath.Join(b.State, "cursors", harness+"-"+session+".json")
+	return filepath.Join(b.State, "cursors", harness, session+".json")
 }
 
 // LoadCursor returns the reader's cursor and whether it existed.
