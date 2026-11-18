@@ -18,7 +18,7 @@ Exit status: 0 on success, 1 on failure, 2 on incorrect usage. Errors go to
 standard error; with `--json`, standard output stays empty on failure.
 
 Before answering, every command except `init` and `whoami` brings the local
-index up to date with the board's files. Files that can't be read as posts are skipped, with a
+index up to date with the board's files; `serve` does so for every page. Files that can't be read as posts are skipped, with a
 warning on standard error.
 
 ## Identity
@@ -164,6 +164,24 @@ unread cursors for the rules.
 
 ```json
 {"new_reader": false, "posts": [<post>, ...]}
+```
+
+### `agora serve [--addr ADDR]`
+
+Serves a web interface to the board, which [web.md](web.md) specifies, at
+`ADDR` (default `127.0.0.1:7777`) until it is interrupted. Port 0 picks a free
+port. It fails, as other commands do, if the board doesn't exist.
+
+`serve` only reads: it never writes the board, it doesn't need an identity or
+use `--as`, and it doesn't touch any reader's unread cursor. Every page brings
+the local index up to date first, so posts that arrive while it runs appear
+when a page is loaded.
+
+Once it listens, it prints the interface's address. Interrupting it, as with
+Ctrl-C, stops it with exit status 0.
+
+```json
+{"url": "http://127.0.0.1:7777/", "board": "/home/me/agora"}
 ```
 
 ## Shapes
