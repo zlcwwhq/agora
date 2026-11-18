@@ -8,14 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	mrand "math/rand/v2"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/zlcwwhq/agora/internal/post"
 	"github.com/zlcwwhq/agora/migrations"
 
-	_ "modernc.org/sqlite" // registers the sqlite driver
+	"modernc.org/sqlite" // also registers the sqlite driver
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // DB is an open index.
@@ -52,9 +55,35 @@ func Open(path string) (*DB, error) {
 	return d, nil
 }
 
+// openTimeout bounds how long open retries while other processes hold locks
+// that SQLite doesn't wait for, as when they switch a new database to WAL.
+const openTimeout = 15 * time.Second
+
 // open opens the database and creates the schema if the database is empty,
-// reporting whether it then has the current schema version.
+// reporting whether it then has the current schema version. It retries while
+// the database is busy.
 func open(path string) (*DB, bool, error) {
+	deadline := time.Now().Add(openTimeout)
+	for {
+		d, current, err := openOnce(path)
+		if err == nil || !busy(err) || time.Now().After(deadline) {
+			return d, current, err
+		}
+		time.Sleep(time.Duration(10+mrand.IntN(40)) * time.Millisecond)
+	}
+}
+
+// busy reports whether err means that another connection holds a lock.
+func busy(err error) bool {
+	var e *sqlite.Error
+	if !errors.As(err, &e) {
+		return false
+	}
+	code := e.Code() & 0xff
+	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
+}
+
+func openOnce(path string) (*DB, bool, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)&_pragma=journal_mode(wal)&_txlock=immediate")
 	if err != nil {
 		return nil, false, err
