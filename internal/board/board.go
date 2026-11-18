@@ -232,10 +232,14 @@ func (b *Board) Publish(p post.Post) (post.Post, error) {
 		if err != nil {
 			return post.Post{}, fmt.Errorf("publishing %s: %w", p.ID, err)
 		}
-		if err := syncDir(dir); err != nil {
-			return post.Post{}, err
-		}
-		return p, b.raiseHighwater(n)
+		// The post is published now. Reporting a failure of these
+		// follow-ups would make callers retry and post twice, so they are
+		// best effort: without the directory sync, a crash may lose the post,
+		// and without the high-water mark, only deleting the post by hand
+		// lets its number be reused.
+		_ = syncDir(dir)
+		_ = b.raiseHighwater(n)
+		return p, nil
 	}
 }
 

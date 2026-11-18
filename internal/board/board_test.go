@@ -169,6 +169,32 @@ func TestPublishNumbersAndNeverReuses(t *testing.T) {
 	}
 }
 
+func TestPublishSucceedsOnceLinked(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	b := open(t)
+	if err := b.Init("wsl", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Publish(draft("first")); err != nil {
+		t.Fatal(err)
+	}
+	// The state directory is readable but not writable, so the high-water
+	// mark can't be raised after the post is linked.
+	if err := os.Chmod(b.State, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(b.State, 0o700) })
+	p, err := b.Publish(draft("second"))
+	if err != nil {
+		t.Fatalf("a published post was reported as failed, inviting a duplicate: %v", err)
+	}
+	if _, err := b.Read("posts/wsl/2.md"); err != nil || p.ID.N != 2 {
+		t.Fatalf("post %s: %v", p.ID, err)
+	}
+}
+
 func TestConcurrentPublishersGetDistinctNumbers(t *testing.T) {
 	b := open(t)
 	if err := b.Init("wsl", false); err != nil {
