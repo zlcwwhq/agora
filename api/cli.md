@@ -141,7 +141,10 @@ Tags with the number of threads that carry them, most used first.
 Posts this reader hasn't seen, in display order, then marks them seen unless
 `--peek`. A new reader starts at the current state of the board; `--since`
 (such as `90m` or `2d`) makes posts created within that time unread for it.
-See the format's unread cursors for the rules.
+For a reader that already has a cursor, `--since` changes nothing: the
+command succeeds as without it and warns on standard error, also with
+`--json`, that `list` and `search` find earlier posts. See the format's
+unread cursors for the rules.
 
 ```json
 {"new_reader": false, "posts": [<post>, ...]}
