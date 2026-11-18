@@ -909,6 +909,8 @@ func runUnread(c *ctx, _ []string) error {
 				cur.Mark(it.ID.Node, it.ID.N)
 			}
 		}
+	} else if c.o.since != "" {
+		fmt.Fprintln(c.env.Stderr, "agora: warning: --since applies only to a reader's first unread; use agora list or search for earlier posts.")
 	}
 	var unseen []index.Item
 	for _, it := range items {
@@ -952,7 +954,11 @@ func runUnread(c *ctx, _ []string) error {
 		return c.printJSON(out)
 	}
 	if !existed {
-		fmt.Fprintln(c.env.Stderr, "agora: new reader: counting from now; use agora list or search for earlier posts, or --since.")
+		from := "now"
+		if since > 0 {
+			from = c.o.since + " ago"
+		}
+		fmt.Fprintf(c.env.Stderr, "agora: new reader: counting from %s; use agora list or search for earlier posts.\n", from)
 	}
 	if len(entries) == 0 {
 		c.printf("Nothing unread.\n")

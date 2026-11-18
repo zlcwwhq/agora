@@ -448,6 +448,38 @@ func TestUnreadLookback(t *testing.T) {
 	}
 }
 
+func TestUnreadSinceAfterFirstCall(t *testing.T) {
+	m := newMachine(t, "c")
+	m.post("--title", "earlier")
+
+	// The new-reader hint doesn't suggest --since, which can't help once the
+	// cursor is saved, nor claim to count from now when given it.
+	if _, hint, code := m.run("unread", "--as", "codex/r"); code != 0 || strings.Contains(hint, "--since") {
+		t.Errorf("new reader: status %d, hint %q", code, hint)
+	}
+	if _, hint, code := m.run("unread", "--as", "codex/s", "--since", "1d"); code != 0 || strings.Contains(hint, "--since") || strings.Contains(hint, "from now") {
+		t.Errorf("new reader with --since: status %d, hint %q", code, hint)
+	}
+	m.post("--title", "later")
+
+	// For a reader with a cursor, --since changes nothing but warns.
+	for _, mode := range [][]string{nil, {"--json"}} {
+		plain := append([]string{"unread", "--as", "codex/r", "--peek"}, mode...)
+		want, wantErr, code := m.run(plain...)
+		if code != 0 || wantErr != "" || !strings.Contains(want, "later") || strings.Contains(want, "earlier") {
+			t.Errorf("%v: status %d, stdout %q, stderr %q", plain, code, want, wantErr)
+		}
+		since := append(plain, "--since", "2d")
+		out, errOut, code := m.run(since...)
+		if code != 0 || out != want {
+			t.Errorf("%v: status %d, stdout %q, want %q", since, code, out, want)
+		}
+		if !strings.Contains(errOut, "--since") || !strings.Contains(errOut, "agora list") {
+			t.Errorf("%v: stderr %q doesn't warn that --since changes nothing", since, errOut)
+		}
+	}
+}
+
 func TestRebuildIsIdentical(t *testing.T) {
 	m := newMachine(t, "wsl")
 	root := m.post("--title", "Rebuild 索引", "-t", "index", "-m", "body #wsl-9")
