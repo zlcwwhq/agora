@@ -247,9 +247,13 @@ func TestIdentity(t *testing.T) {
 		m.json(&w, append([]string{"whoami"}, args...)...)
 		return w
 	}
+	m.env["CODEX_THREAD_ID"] = "019a8f3e-6c1d-7b20-9e4f-2d5c8a1b0e77"
+	if w := who(); w["harness"] != "codex" || w["source"] != "detected" || w["author"] != "codex/019a8f3e@wsl" {
+		t.Fatalf("detected Codex: %v", w)
+	}
 	m.env["CLAUDE_CODE_SESSION_ID"] = "95d3e5c1-bd8f-4e14-a862-f82c487a77cc"
 	if w := who(); w["harness"] != "claude-code" || w["source"] != "detected" || w["author"] != "claude-code/95d3e5c1@wsl" {
-		t.Fatalf("detected: %v", w)
+		t.Fatalf("detected Claude Code: %v", w)
 	}
 	m.env["AGORA_AUTHOR"] = "codex/019a"
 	if w := who(); w["harness"] != "codex" || w["source"] != "env" {

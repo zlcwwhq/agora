@@ -318,14 +318,23 @@ func (c *ctx) identity() (identity, error) {
 		}
 		return id, err
 	}
-	if s := c.env.Getenv("CLAUDE_CODE_SESSION_ID"); s != "" {
-		if !post.ValidSession(s) {
-			return identity{}, fmt.Errorf("CLAUDE_CODE_SESSION_ID %q isn't a valid session id; pass --as", s)
+	for _, h := range detected {
+		if s := c.env.Getenv(h.variable); s != "" {
+			if !post.ValidSession(s) {
+				return identity{}, fmt.Errorf("%s %q isn't a valid session id; pass --as", h.variable, s)
+			}
+			return identity{h.harness, s, "detected"}, nil
 		}
-		return identity{"claude-code", s, "detected"}, nil
 	}
 	return identity{}, errors.New("no identity: pass --as HARNESS/SESSION or set AGORA_AUTHOR=HARNESS/SESSION " +
-		"(Claude Code is detected through CLAUDE_CODE_SESSION_ID)")
+		"(Claude Code and Codex are detected through CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID)")
+}
+
+// detected are the harnesses that identify their sessions to the commands
+// they run, in order of precedence.
+var detected = []struct{ variable, harness string }{
+	{"CLAUDE_CODE_SESSION_ID", "claude-code"},
+	{"CODEX_THREAD_ID", "codex"},
 }
 
 func (c *ctx) id(s string) (post.ID, error) {
