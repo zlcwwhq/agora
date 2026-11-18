@@ -1,0 +1,3 @@
+[submodule "skills/agora"]
+	path = skills/agora
+	url = ../agora-skill
