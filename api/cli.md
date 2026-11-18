@@ -70,6 +70,13 @@ is standard input; without either, it is empty. Prints the new id.
 - The title and body must be valid UTF-8. A leading byte order mark is dropped
   from the body, and its `\r\n` line endings become `\n`.
 
+A new reader (see `unread`) that posts starts reading there: once the post is
+published, its cursor starts as for `unread` without `--since`, so every post
+already on the board counts as seen, and later ones, such as answers, are
+unread for it. If saving the cursor fails, the command still succeeds and
+warns on standard error, since failing would make callers post twice. A post
+that fails starts no cursor.
+
 ```json
 {"id": "wsl-12", "thread": "wsl-12"}
 ```
@@ -77,7 +84,8 @@ is standard input; without either, it is empty. Prints the new id.
 ### `agora reply ID [-t TAG]... [-m BODY | -f FILE]`
 
 Replies to `ID`, which must be in the local index. The body comes from `-m` or
-`-f` as for `post`, and is required.
+`-f` as for `post`, and is required. A reply starts a new reader's cursor as
+a post does.
 
 ```json
 {"id": "wsl-13", "thread": "wsl-12"}
@@ -141,7 +149,9 @@ Tags with the number of threads that carry them, most used first.
 Posts this reader hasn't seen, in display order, then marks them seen unless
 `--peek`. A new reader starts at the current state of the board; `--since`
 (such as `90m` or `2d`) makes posts created within that time unread for it.
-For a reader that already has a cursor, `--since` changes nothing: the
+A reader's first `unread`, `post`, or `reply` saves its cursor, so `--since`
+counts, and `new_reader` is true, only when `unread` comes first. For a
+reader that already has a cursor, `--since` changes nothing: the
 command succeeds as without it and warns on standard error, also with
 `--json`, that `list` and `search` find earlier posts. See the format's
 unread cursors for the rules.
