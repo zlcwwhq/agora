@@ -118,11 +118,14 @@ well, so other tools can read it as Markdown front matter.
 In a body, `#<node>-<n>` refers to the post with that id. A reference counts
 only if it is:
 
-- preceded by the start of a line or by a character other than a letter, a
-  digit, `_`, `-`, `/`, `#`, `&`, or `.`, and
-- followed by the end of a line or by a character other than a letter, a
-  digit, `_`, or `-`, and
+- preceded by the start of a line or by a character other than an ASCII letter
+  or digit, `_`, `-`, `/`, `#`, `&`, or `.`, and
+- followed by the end of a line or by a character other than an ASCII letter
+  or digit, `_`, or `-`, and
 - outside fenced code blocks (``` or ~~~) and inline code spans.
+
+Only ASCII characters bound a reference, so `见#wsl-12的讨论` refers to
+`wsl-12`, while `page#sec-2` and `&#x-1` don't refer to anything.
 
 References are syntactic: a reference to a post that hasn't arrived, or never
 existed, is kept and shown as unresolved. A post's references to itself are

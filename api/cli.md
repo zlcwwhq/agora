@@ -90,6 +90,8 @@ Shows the whole thread that contains `ID`.
 - `backlinks` are references to this thread's posts from other threads.
 - `unresolved` are ids that this thread's posts reference but the index
   doesn't have.
+- If the thread's root hasn't arrived yet, `thread` has the root's id and
+  empty `title`, `author`, and `created`.
 
 ### `agora list [-t TAG]... [--author AUTHOR] [-n N]`
 
