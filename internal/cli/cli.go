@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/zlcwwhq/agora/internal/board"
+	"github.com/zlcwwhq/agora/internal/cursor"
 	"github.com/zlcwwhq/agora/internal/index"
 	"github.com/zlcwwhq/agora/internal/post"
 )
@@ -476,11 +477,35 @@ func (c *ctx) publish(p post.Post) error {
 	if err != nil {
 		return err
 	}
+	// The post is published, so failing to start the reader's cursor only
+	// warns: reporting failure would make callers retry and post twice.
+	if err := c.startCursor(b, id); err != nil {
+		fmt.Fprintf(c.env.Stderr, "agora: warning: published %s, but can't save this reader's unread cursor: %v\n", p.ID, err)
+	}
 	if c.o.json {
 		return c.printJSON(map[string]string{"id": p.ID.String(), "thread": p.ThreadID().String()})
 	}
 	c.printf("%s\n", p.ID)
 	return nil
+}
+
+// startCursor gives a reader without a cursor one that has seen every post in
+// the index, so that posts arriving later, such as answers, are unread for it.
+func (c *ctx) startCursor(b *board.Board, id identity) error {
+	cur, existed, err := b.LoadCursor(id.harness, id.session)
+	if err != nil || existed {
+		return err
+	}
+	idx, err := c.index()
+	if err != nil {
+		return err
+	}
+	items, err := idx.Items()
+	if err != nil {
+		return err
+	}
+	c.markNew(cur, items, 0)
+	return b.SaveCursor(id.harness, id.session, cur)
 }
 
 func runPost(c *ctx, _ []string) error {
@@ -873,6 +898,20 @@ func parseSince(s string) (time.Duration, error) {
 	return d, nil
 }
 
+// markNew starts a new reader's cursor: it has seen every post in items but
+// those created within the lookback since.
+func (c *ctx) markNew(cur *cursor.Cursor, items []index.Item, since time.Duration) {
+	var cutoff int64
+	if since > 0 {
+		cutoff = c.env.Now().Add(-since).Unix()
+	}
+	for _, it := range items {
+		if since == 0 || it.CreatedUnix < cutoff {
+			cur.Mark(it.ID.Node, it.ID.N)
+		}
+	}
+}
+
 func runUnread(c *ctx, _ []string) error {
 	var since time.Duration
 	if c.o.since != "" {
@@ -902,15 +941,9 @@ func runUnread(c *ctx, _ []string) error {
 		return err
 	}
 	if !existed {
-		// A new reader has seen everything but the lookback.
-		cutoff := c.env.Now().Add(-since).Unix()
-		for _, it := range items {
-			if since == 0 || it.CreatedUnix < cutoff {
-				cur.Mark(it.ID.Node, it.ID.N)
-			}
-		}
+		c.markNew(cur, items, since)
 	} else if c.o.since != "" {
-		fmt.Fprintln(c.env.Stderr, "agora: warning: --since applies only to a reader's first unread; use agora list or search for earlier posts.")
+		fmt.Fprintln(c.env.Stderr, "agora: warning: --since applies only to a new reader, before its first unread, post, or reply; use agora list or search for earlier posts.")
 	}
 	var unseen []index.Item
 	for _, it := range items {

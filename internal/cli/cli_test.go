@@ -480,6 +480,85 @@ func TestUnreadSinceAfterFirstCall(t *testing.T) {
 	}
 }
 
+func TestPostStartsCursor(t *testing.T) {
+	a, b := newMachine(t, "a"), newMachine(t, "b")
+	b.post("--title", "older thread", "-m", "old")
+	copyPosts(t, b, a)
+
+	// A reply that fails starts no cursor, nor does a post that fails, here
+	// for want of a node name: the reader is still new, and --since counts.
+	c := newMachine(t, "")
+	copyPosts(t, b, c)
+	failed := []string{"--as", "claude-code/failed"}
+	for _, f := range []struct {
+		m    *machine
+		args []string
+	}{
+		{a, []string{"reply", "b-9", "-m", "x"}},
+		{c, []string{"post", "--title", "t", "-m", "x"}},
+	} {
+		if _, _, code := f.m.run(append(f.args, failed...)...); code != 1 {
+			t.Errorf("%s: status %d, want 1", f.args[0], code)
+		}
+		if isNew, ids := unreadIDs(t, f.m, append(failed, "--since", "1d")...); !isNew || !reflect.DeepEqual(ids, []string{"b-1"}) {
+			t.Errorf("after a failed %s: new reader %v, %v", f.args[0], isNew, ids)
+		}
+	}
+
+	// A reader that posts or replies before its first unread starts its cursor
+	// then: an answer from another machine is unread for it, and what was on
+	// the board before isn't.
+	for _, first := range [][]string{
+		{"post", "--title", "question", "-m", "?"},
+		{"reply", "b-1", "-m", "a question"},
+	} {
+		reader := []string{"--as", "claude-code/" + first[0]}
+		out, errOut, code := a.run(append(first, reader...)...)
+		if code != 0 || errOut != "" {
+			t.Fatalf("%s: status %d, stderr %q", first[0], code, errOut)
+		}
+		copyPosts(t, a, b)
+		answer := b.reply(strings.TrimSpace(out), "-m", "answer")
+		copyPosts(t, b, a)
+		if isNew, ids := unreadIDs(t, a, reader...); isNew || !reflect.DeepEqual(ids, []string{answer}) {
+			t.Errorf("unread after a %s: new reader %v, %v, want only %s", first[0], isNew, ids, answer)
+		}
+	}
+
+	// So --since comes too late for a reader that posted first, and says so.
+	reader := []string{"--as", "claude-code/since"}
+	a.ok(append([]string{"post", "--title", "t"}, reader...)...)
+	out, errOut, code := a.run(append([]string{"unread", "--since", "1d", "--json"}, reader...)...)
+	if code != 0 || !strings.Contains(out, `"new_reader": false`) || !strings.Contains(out, `"posts": []`) ||
+		!strings.Contains(errOut, "--since") || !strings.Contains(errOut, "agora list") {
+		t.Errorf("unread --since after a post: status %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
+func TestPostSucceedsWithoutCursor(t *testing.T) {
+	m := newMachine(t, "c")
+	var r struct{ State string }
+	m.json(&r, "init", "--node", "c")
+	// A file where the cursors' directory belongs keeps a cursor from being
+	// saved. The post is published all the same, so the command succeeds and
+	// only warns, rather than have the caller post twice.
+	if err := os.WriteFile(filepath.Join(r.State, "cursors"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		want string
+		args []string
+	}{
+		{"c-1\n", []string{"post", "--title", "question"}},
+		{`"id": "c-2"`, []string{"reply", "c-1", "-m", "again", "--json"}},
+	} {
+		out, errOut, code := m.run(append(step.args, "--as", "claude-code/q")...)
+		if code != 0 || !strings.Contains(out, step.want) || !strings.Contains(errOut, "warning") {
+			t.Errorf("%s: status %d, stdout %q, stderr %q", step.args[0], code, out, errOut)
+		}
+	}
+}
+
 func TestRebuildIsIdentical(t *testing.T) {
 	m := newMachine(t, "wsl")
 	root := m.post("--title", "Rebuild 索引", "-t", "index", "-m", "body #wsl-9")
