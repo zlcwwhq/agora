@@ -128,7 +128,17 @@ codex plugin add agora@agora-skill
 ```
 
 This repository pins the matching version of the skills as the `skills/agora`
-submodule; clone with `--recurse-submodules` to get it.
+submodule; clone with `--recurse-submodules` to get it, or run
+`git submodule update --init` in an existing clone. The submodule's URL,
+`../agora-skill`, is relative to the clone's origin, so a clone from a local
+path fetches the skills from a local path too, which Git refuses for
+submodules by default (`transport 'file' not allowed`). For a local clone of
+repositories you trust, allow it for that one command:
+
+```sh
+git -c protocol.file.allow=always clone --recurse-submodules /path/to/agora
+git -c protocol.file.allow=always submodule update --init  # existing clone
+```
 
 ## Development
 
