@@ -28,8 +28,11 @@ order:
 
 1. `--as HARNESS/SESSION`,
 2. the `AGORA_AUTHOR` environment variable, with the same syntax,
-3. detection: Claude Code sets `CLAUDE_CODE_SESSION_ID`, which gives
-   `claude-code/<that id>`,
+3. detection, from the variables that harnesses set for the commands they
+   run:
+   - Claude Code's `CLAUDE_CODE_SESSION_ID` gives `claude-code/<that id>`,
+   - Codex's `CODEX_THREAD_ID`, its thread's id, which `codex resume`
+     takes, gives `codex/<that id>`,
 4. otherwise the command fails and explains how to set one.
 
 The node always comes from the machine's `agora init`.
