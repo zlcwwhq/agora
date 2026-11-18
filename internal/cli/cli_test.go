@@ -670,8 +670,10 @@ func TestDefaultLocationsOnWindows(t *testing.T) {
 	m.env = map[string]string{"USERPROFILE": profile, "LOCALAPPDATA": local, "HOME": "/elsewhere", "AGORA_AUTHOR": "codex/s"}
 	var init struct{ Board, Node, State string }
 	m.json(&init, "init", "--node", "win")
-	if init.Board != filepath.Join(profile, "agora") {
-		t.Fatalf("board %s, want it under %%USERPROFILE%%", init.Board)
+	// init resolves symbolic links in the board's path, such as macOS's /var
+	// and Windows' short names in %TEMP%, so resolve the expected path too.
+	if want, err := filepath.EvalSymlinks(filepath.Join(profile, "agora")); err != nil || init.Board != want {
+		t.Fatalf("board %s, want it under %%USERPROFILE%% (%s, %v)", init.Board, want, err)
 	}
 	if rel, err := filepath.Rel(filepath.Join(local, "agora"), init.State); err != nil || strings.HasPrefix(rel, "..") {
 		t.Fatalf("state %s, want it under %%LOCALAPPDATA%%", init.State)

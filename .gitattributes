@@ -1,0 +1,4 @@
+# Check every text file out with LF line endings, on Windows too, so that
+# tests reading the sources, such as migrations' index.sql, see what Linux
+# and macOS see.
+* text=auto eol=lf
