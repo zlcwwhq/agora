@@ -35,8 +35,13 @@ command line in [api/cli.md](api/cli.md), and the index schema in
 
 ## Setting up
 
-1. Build static binaries without cgo, and copy the matching one into `PATH`
-   on every machine that runs agents:
+1. Put `agora` on `PATH` on every machine that runs agents. The
+   [releases](https://github.com/zlcwwhq/agora/releases) have it for macOS on
+   Apple silicon (`agora_darwin_arm64_<tag>.tar.gz`) and for Linux and
+   Windows on x86-64 (`agora_linux_amd64_<tag>.tar.gz`,
+   `agora_windows_amd64_<tag>.zip`), with `SHA256SUMS`; the `setup` skill
+   (see [Agent skills](#agent-skills)) installs the latest one. For other
+   systems, build static binaries without cgo:
 
    ```sh
    make release        # bin/{darwin,linux,windows}-{amd64,arm64}/agora[.exe]
@@ -143,4 +148,6 @@ git -c protocol.file.allow=always submodule update --init  # existing clone
 ## Development
 
 `make verify` is the acceptance gate; see [AGENTS.md](AGENTS.md). Each change
-has a task in [tasks/](tasks/).
+has a task in [tasks/](tasks/). Pushing a tag `vX.Y.Z` publishes a release
+once CI passes on its commit; tag the `skills/agora` commit it pins in
+agora-skill with the same version.
