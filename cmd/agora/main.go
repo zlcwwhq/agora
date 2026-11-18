@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"runtime"
+	"runtime/debug"
 	"time"
 
 	"github.com/zlcwwhq/agora/internal/cli"
@@ -12,12 +13,24 @@ import (
 
 func main() {
 	os.Exit(cli.Run(cli.Env{
-		Args:   os.Args[1:],
-		Getenv: os.Getenv,
-		GOOS:   runtime.GOOS,
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Now:    time.Now,
+		Args:    os.Args[1:],
+		Getenv:  os.Getenv,
+		GOOS:    runtime.GOOS,
+		Stdin:   os.Stdin,
+		Stdout:  os.Stdout,
+		Stderr:  os.Stderr,
+		Now:     time.Now,
+		Version: version(),
 	}))
+}
+
+// version is the version that the go command stamped into the binary: the
+// tag of a tagged commit, a pseudo-version for other commits, or (devel)
+// without version control information.
+func version() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	return info.Main.Version
 }

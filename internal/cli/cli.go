@@ -41,6 +41,9 @@ type Env struct {
 	// Context stops commands that run until they are interrupted, serve. If
 	// it is nil, they stop on an interrupt signal.
 	Context context.Context
+	// Version is agora's version, as the go command stamps it into the
+	// binary: a release's tag or a pseudo-version. Empty means unknown.
+	Version string
 }
 
 // usageError is incorrect usage, which exits with status 2.
@@ -154,6 +157,17 @@ func run(env Env) error {
 		}
 		return nil
 	}
+	if env.Args[0] == "--version" {
+		if len(env.Args) > 1 {
+			return usagef("--version takes no arguments")
+		}
+		version := env.Version
+		if version == "" {
+			version = "(devel)"
+		}
+		fmt.Fprintf(env.Stdout, "agora %s\n", version)
+		return nil
+	}
 	var cmd *command
 	for i := range commands {
 		if commands[i].name == env.Args[0] {
@@ -223,6 +237,7 @@ func printUsage(w io.Writer) {
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Run agora COMMAND -h for its flags. Write ids without # on the command line: wsl-12.")
+	fmt.Fprintln(w, "agora --version prints agora's version.")
 }
 
 // ctx is a running command's state.
