@@ -2,17 +2,21 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -20,6 +24,7 @@ import (
 	"github.com/zlcwwhq/agora/internal/cursor"
 	"github.com/zlcwwhq/agora/internal/index"
 	"github.com/zlcwwhq/agora/internal/post"
+	"github.com/zlcwwhq/agora/internal/web"
 )
 
 // Env is everything a command uses from its process.
@@ -33,6 +38,9 @@ type Env struct {
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	Now            func() time.Time
+	// Context stops commands that run until they are interrupted, serve. If
+	// it is nil, they stop on an interrupt signal.
+	Context context.Context
 }
 
 // usageError is incorrect usage, which exits with status 2.
@@ -65,6 +73,7 @@ type opts struct {
 	inBody    bool
 	peek      bool
 	since     string
+	addr      string
 	set       map[string]bool
 }
 
@@ -113,6 +122,10 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.BoolVar(&o.peek, "peek", false, "don't mark them seen")
 			fs.StringVar(&o.since, "since", "", "for a new reader, also posts created within `DURATION`, such as 90m or 2d")
+		}},
+	{name: "serve", args: "[--addr ADDR]", summary: "show the board in a browser, read-only", run: runServe,
+		flags: func(fs *flag.FlagSet, o *opts) {
+			fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "listen on `ADDR`; port 0 picks a free port")
 		}},
 }
 
@@ -1024,4 +1037,63 @@ func runUnread(c *ctx, _ []string) error {
 		c.printPost(e, false, context)
 	}
 	return nil
+}
+
+func runServe(c *ctx, _ []string) error {
+	b, err := c.board()
+	if err != nil {
+		return err
+	}
+	// Fail now, as other commands do, if the board doesn't exist.
+	if _, err := c.index(); err != nil {
+		return err
+	}
+	c.close()
+	c.idx = nil
+	node, err := b.Node()
+	if err != nil && !errors.Is(err, board.ErrNotInitialized) {
+		return err
+	}
+	ln, err := net.Listen("tcp", c.o.addr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ln.Close() }()
+	url := "http://" + displayAddr(ln.Addr()) + "/"
+	if c.o.json {
+		if err := c.printJSON(map[string]string{"url": url, "board": b.Root}); err != nil {
+			return err
+		}
+	} else {
+		c.printf("Serving %s at %s\nPress Ctrl-C to stop.\n", b.Root, url)
+	}
+
+	stop := c.env.Context
+	if stop == nil {
+		var cancel context.CancelFunc
+		stop, cancel = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+	}
+	return web.Serve(stop, ln, web.Config{
+		// Every page brings its own index up to date, so that posts that
+		// arrive while serving appear.
+		Open: func() (*index.DB, error) {
+			page := &ctx{env: c.env, o: c.o, b: b}
+			return page.index()
+		},
+		Board: b.Root, Node: node, Now: c.env.Now,
+		Logf: func(format string, args ...any) {
+			fmt.Fprintf(c.env.Stderr, "agora: "+format+"\n", args...)
+		},
+	})
+}
+
+// displayAddr is the address to open in a browser: a server listening on
+// every address is reached at the loopback address.
+func displayAddr(addr net.Addr) string {
+	tcp, ok := addr.(*net.TCPAddr)
+	if !ok || !tcp.IP.IsUnspecified() {
+		return addr.String()
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(tcp.Port))
 }

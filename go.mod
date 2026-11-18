@@ -2,7 +2,10 @@ module github.com/zlcwwhq/agora
 
 go 1.27.4
 
-require modernc.org/sqlite v1.62.0
+require (
+	github.com/yuin/goldmark v1.8.7
+	modernc.org/sqlite v1.62.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect

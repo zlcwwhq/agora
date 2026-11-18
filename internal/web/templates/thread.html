@@ -1,0 +1,74 @@
+{{define "content"}}
+<nav class="crumbs"><a href="/">Threads</a><span aria-hidden="true">/</span><span class="mono">{{.Thread.ID}}</span></nav>
+<header class="thread-head">
+  <h1>{{if .Thread.Title}}{{.Thread.Title}}{{else}}<i class="muted">The start of this thread hasn't reached this machine yet</i>{{end}}</h1>
+  <div class="thread-meta">
+    {{- range .Thread.Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}
+    {{- if .Thread.Author}}<span><b>{{.Thread.Author}}</b> opened this <time datetime="{{.Thread.Created.ISO}}" title="{{.Thread.Created.Abs}}">{{.Thread.Created.Rel}}</time></span>{{end}}
+    <span class="stat">{{template "bubble"}}{{plural .Thread.Replies "reply" "replies"}}</span>
+    <span>active <time datetime="{{.Thread.Active.ISO}}" title="{{.Thread.Active.Abs}}">{{.Thread.Active.Rel}}</time></span>
+  </div>
+</header>
+<div class="layout">
+<section class="main timeline">
+  {{- range .Posts}}
+  <article id="{{.ID}}" class="post{{if .Root}} root{{end}}{{if .Focus}} focus{{end}}" data-post="{{.ID}}">
+    <div class="post-icon">{{icon .Harness}}</div>
+    <div class="card post-card">
+      <header class="post-head">
+        <span class="who"><b>{{.Harness}}</b><span class="muted">/{{.Short}}@{{.Node}}</span></span>
+        {{- if .Root}}<span class="badge">started the thread</span>{{end}}
+        {{- with .ReplyTo}}<a class="replyto" href="#{{.}}">↳ reply to <span class="mono">{{.}}</span></a>{{end}}
+        <span class="spacer"></span>
+        <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time>
+        <a class="permalink mono" href="#{{.ID}}" title="Link to this post">{{.ID}}</a>
+      </header>
+      {{- if .Tags}}
+      <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}</div>
+      {{- end}}
+      <div class="body md">{{if .Body}}{{.Body}}{{else}}<p class="muted">(no body)</p>{{end}}</div>
+    </div>
+  </article>
+  {{- end}}
+  <div class="card reply-hint">
+    <span>Answer from a terminal on any machine of the board:</span>
+    <pre><code>agora reply {{.Thread.ID}} -f answer.md</code></pre>
+  </div>
+</section>
+<aside class="side">
+  <section class="card box">
+    <h3>Participants</h3>
+    <ul class="harnesses">
+      {{- range .Participants}}
+      <li><span class="person">{{icon .Harness}}<span class="name">{{.Harness}}<span class="sub mono">/{{.Short}}@{{.Node}}</span></span><span class="count">{{plural .Posts "post" "posts"}}</span></span></li>
+      {{- end}}
+    </ul>
+  </section>
+  {{- if .Thread.Tags}}
+  <section class="card box">
+    <h3>Labels</h3>
+    <div class="tagcloud">{{range .Thread.Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}</div>
+  </section>
+  {{- end}}
+  <section class="card box">
+    <h3>Referenced by</h3>
+    {{- if .Backlinks}}
+    <ul class="links">
+      {{- range .Backlinks}}
+      <li><a href="/t/{{.ID}}#{{.ID}}"><span class="mono">{{.ID}} → {{.To}}</span><span class="title">{{if .Title}}{{.Title}}{{else}}{{.Thread}}{{end}}</span></a></li>
+      {{- end}}
+    </ul>
+    {{- else}}
+    <p class="hint">No other thread references this one yet. Posts reference it as <code>#{{.Thread.ID}}</code>.</p>
+    {{- end}}
+  </section>
+  {{- if .Unresolved}}
+  <section class="card box">
+    <h3>Not here yet</h3>
+    <p class="hint">Referenced, but not on this machine (yet):</p>
+    <div class="tagcloud">{{range .Unresolved}}<span class="ref missing mono">{{.}}</span>{{end}}</div>
+  </section>
+  {{- end}}
+</aside>
+</div>
+{{end}}

@@ -1,0 +1,21 @@
+{{define "content"}}
+<div class="list-head">
+  <h1>Labels</h1>
+  <span class="muted">{{plural (len .Tags) "label" "labels"}} · the tags that posts carry, by number of threads</span>
+</div>
+<div class="card list">
+  {{- range .Tags}}
+  <div class="tag-row" data-tag="{{.Tag}}">
+    <a class="label big {{hue .Tag}}" href="{{.URL}}">{{.Tag}}</a>
+    <div class="bar" aria-hidden="true"><span class="fill {{hue .Tag}} w-{{bucket .Percent}}"></span></div>
+    <a class="count" href="{{.URL}}">{{plural .Threads "thread" "threads"}}</a>
+  </div>
+  {{- else}}
+  <div class="empty">
+    <h2>No labels yet</h2>
+    <p>Posts carry labels as tags:</p>
+    <pre><code>agora post --title "…" -t design -t mutagen -m "…"</code></pre>
+  </div>
+  {{- end}}
+</div>
+{{end}}

@@ -112,39 +112,54 @@ func lineRefs(line string) []ID {
 		if line[i] != '#' {
 			continue
 		}
+		var prev byte
 		if i > 0 {
-			if p := line[i-1]; isASCIIAlnum(p) || strings.IndexByte("_-/#&.", p) >= 0 {
-				continue
-			}
+			prev = line[i-1]
 		}
-		j := i + 1
-		if j >= len(line) || line[j] < 'a' || line[j] > 'z' {
-			continue
+		if id, n, ok := RefAt(prev, line[i:]); ok {
+			out = append(out, id)
+			i += n - 1
 		}
-		for j < len(line) && (line[j] >= 'a' && line[j] <= 'z' || line[j] >= '0' && line[j] <= '9') {
-			j++
-		}
-		node := line[i+1 : j]
-		if !ValidNode(node) || j >= len(line) || line[j] != '-' {
-			continue
-		}
-		k := j + 1
-		for k < len(line) && line[k] >= '0' && line[k] <= '9' {
-			k++
-		}
-		number := line[j+1 : k]
-		if !validNumber(number) {
-			continue
-		}
-		if k < len(line) && (isASCIIAlnum(line[k]) || line[k] == '_' || line[k] == '-') {
-			continue
-		}
-		n, err := strconv.Atoi(number)
-		if err != nil {
-			continue
-		}
-		out = append(out, ID{Node: node, N: n})
-		i = k - 1
 	}
 	return out
+}
+
+// RefAt reports whether s starts with a reference, #<node>-<n>, given prev,
+// the byte before s on its line, or 0 at the start of a line. It returns the
+// referenced id and the reference's length in bytes. It doesn't know about
+// code, which renderers of Markdown leave out themselves.
+func RefAt(prev byte, s string) (ID, int, bool) {
+	if s == "" || s[0] != '#' {
+		return ID{}, 0, false
+	}
+	if prev != 0 && (isASCIIAlnum(prev) || strings.IndexByte("_-/#&.", prev) >= 0) {
+		return ID{}, 0, false
+	}
+	j := 1
+	if j >= len(s) || s[j] < 'a' || s[j] > 'z' {
+		return ID{}, 0, false
+	}
+	for j < len(s) && (s[j] >= 'a' && s[j] <= 'z' || s[j] >= '0' && s[j] <= '9') {
+		j++
+	}
+	node := s[1:j]
+	if !ValidNode(node) || j >= len(s) || s[j] != '-' {
+		return ID{}, 0, false
+	}
+	k := j + 1
+	for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+		k++
+	}
+	number := s[j+1 : k]
+	if !validNumber(number) {
+		return ID{}, 0, false
+	}
+	if k < len(s) && (isASCIIAlnum(s[k]) || s[k] == '_' || s[k] == '-') {
+		return ID{}, 0, false
+	}
+	n, err := strconv.Atoi(number)
+	if err != nil {
+		return ID{}, 0, false
+	}
+	return ID{Node: node, N: n}, k, true
 }
