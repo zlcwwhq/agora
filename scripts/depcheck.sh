@@ -1,7 +1,9 @@
 #!/bin/sh
 # Package dependency allowlist. Dependencies point inward only:
-# cmd -> adapters (internal/board for files, internal/index for SQLite)
-# -> logic (internal/post, internal/cursor).
+# cmd -> adapters (internal/board for files, internal/index for SQLite,
+# internal/web for HTTP) -> logic (internal/post, internal/cursor).
+# The web interface only reads: it gets the board's posts from the index and
+# doesn't import internal/board, which writes the board.
 set -eu
 
 module=$(go list -m)
@@ -11,7 +13,10 @@ violations=$(go list -f '{{.ImportPath}} {{join .Imports " "}}' ./... | while re
 	for imp in $imports; do
 		case $imp in
 		net/http | net/http/*)
-			echo "$rel imports $imp: no package uses HTTP" ;;
+			case $rel in
+			internal/web) ;;
+			*) echo "$rel imports $imp: only internal/web serves HTTP" ;;
+			esac ;;
 		database/sql | database/sql/* | modernc.org/*)
 			case $rel in
 			internal/index) ;;
@@ -21,6 +26,11 @@ violations=$(go list -f '{{.ImportPath}} {{join .Imports " "}}' ./... | while re
 			echo "$rel imports $imp: nothing imports commands" ;;
 		esac
 		case $rel in
+		internal/web)
+			case $imp in
+			"$module"/internal/board | "$module"/internal/cli)
+				echo "$rel imports $imp: the web interface only reads, from the index that the command line brings up to date" ;;
+			esac ;;
 		internal/post | internal/cursor)
 			case $imp in
 			os | os/* | io/fs | path/filepath | "$module"/*)
