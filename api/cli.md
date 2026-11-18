@@ -17,8 +17,8 @@ Every command accepts these, before or after its arguments:
 Exit status: 0 on success, 1 on failure, 2 on incorrect usage. Errors go to
 standard error; with `--json`, standard output stays empty on failure.
 
-Before answering, every command except `init` brings the local index up to date
-with the board's files. Files that can't be read as posts are skipped, with a
+Before answering, every command except `init` and `whoami` brings the local
+index up to date with the board's files. Files that can't be read as posts are skipped, with a
 warning on standard error.
 
 ## Identity
