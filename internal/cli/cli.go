@@ -77,7 +77,7 @@ var commands = []command{
 	{name: "init", args: "--node NAME [--resume]", summary: "record this machine's node name and create the board", run: runInit,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.node, "node", "", "this machine's node `name`")
-			fs.BoolVar(&o.resume, "resume", false, "the node's existing posts are this machine's own")
+			fs.BoolVar(&o.resume, "resume", false, "the node's existing directory, posts/NAME, is this machine's own")
 		}},
 	{name: "whoami", summary: "show the identity that commands use", run: runWhoami},
 	{name: "post", args: "--title TITLE [-t TAG]... [-m BODY | -f FILE]", summary: "start a thread", run: runPost,

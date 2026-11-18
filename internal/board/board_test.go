@@ -162,6 +162,75 @@ func TestInitRefusesANameInUse(t *testing.T) {
 	}
 }
 
+// init creates the node's directory, which synchronization brings to the
+// other machines before the node posts anything.
+func TestInitRefusesANameWithoutPosts(t *testing.T) {
+	other := open(t)
+	if err := other.Init("mac", false); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second machine whose copy of the board has mac's empty directory.
+	b, err := Open(other.Root, filepath.Join(testutil.TempDir(t), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Init("mac", false); err == nil || !strings.Contains(err.Error(), "--resume") {
+		t.Fatalf("accepted a name in use: %v", err)
+	}
+	if _, err := b.Node(); !errors.Is(err, ErrNotInitialized) {
+		t.Fatalf("after a refused init: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(b.State, "node")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused init wrote the node file: %v", err)
+	}
+	if err := b.Init("mac", true); err != nil {
+		t.Fatal(err)
+	}
+	if node, err := b.Node(); err != nil || node != "mac" {
+		t.Fatalf("node %q, %v", node, err)
+	}
+}
+
+func TestInitCanBeRunAgainAfterAnInterruption(t *testing.T) {
+	b := open(t)
+	// A highwater that can't be read stops init while it records the name.
+	highwater := filepath.Join(b.State, "highwater")
+	if err := os.MkdirAll(b.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(highwater, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Init("mac", false); err == nil {
+		t.Fatal("init succeeded with an unreadable highwater")
+	}
+	if _, err := os.Lstat(filepath.Join(b.Root, "posts", "mac")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an init that didn't record the name left posts/mac behind: %v", err)
+	}
+	if err := os.Remove(highwater); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Init("mac", false); err != nil {
+		t.Fatalf("running init again: %v", err)
+	}
+
+	// An init stopped after recording the name, before creating directories.
+	for _, dir := range []string{"posts", ".tmp"} {
+		if err := os.RemoveAll(filepath.Join(b.Root, dir)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Init("mac", false); err != nil {
+		t.Fatalf("running init again after it recorded the name: %v", err)
+	}
+	for _, dir := range []string{"posts/mac", ".tmp"} {
+		if info, err := os.Stat(filepath.Join(b.Root, dir)); err != nil || !info.IsDir() {
+			t.Fatalf("%s: %v", dir, err)
+		}
+	}
+}
+
 func TestPublishNumbersAndNeverReuses(t *testing.T) {
 	b := open(t)
 	if err := b.Init("wsl", false); err != nil {

@@ -125,10 +125,11 @@ func (b *Board) Node() (string, error) {
 	return node, nil
 }
 
-// Init creates the board's directories and records node as this machine's
-// node name. It refuses a name whose directory already holds posts, which
-// another machine may be writing, unless resume says they are this machine's
-// own. Initializing again with the same name succeeds.
+// Init records node as this machine's node name and creates the board's
+// directories. It refuses a name whose directory exists, even empty, since
+// init creates it and another machine may be using the name, unless resume
+// says that the directory is this machine's own. Initializing again with the
+// same name succeeds.
 func (b *Board) Init(node string, resume bool) error {
 	if !post.ValidNode(node) {
 		return fmt.Errorf("invalid node name %q: use 1 to 16 lowercase letters and digits, starting with a letter", node)
@@ -140,29 +141,37 @@ func (b *Board) Init(node string, resume bool) error {
 	case err != nil && !errors.Is(err, ErrNotInitialized):
 		return err
 	}
+	if current != node {
+		switch _, err := os.Lstat(b.nodeDir(node)); {
+		case err == nil && !resume:
+			return fmt.Errorf("posts/%s already exists, so another machine may be using that name: "+
+				"choose another name, or pass --resume if the directory is this machine's own", node)
+		case err != nil && !errors.Is(err, fs.ErrNotExist):
+			return err
+		}
+		highest, err := b.highest(node)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(b.State, 0o700); err != nil {
+			return err
+		}
+		if err := b.raiseHighwater(highest); err != nil {
+			return err
+		}
+		if err := writeFileAtomic(filepath.Join(b.State, "node"), []byte(node+"\n")); err != nil {
+			return err
+		}
+	}
+	// The directories come last, so that an interrupted init never leaves
+	// posts/<node>/ without having recorded the name, which would make running
+	// it again refuse the name.
 	for _, dir := range []string{b.nodeDir(node), b.scratch()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	if err := os.MkdirAll(b.State, 0o700); err != nil {
-		return err
-	}
-	if current == node {
-		return nil
-	}
-	highest, err := b.highest(node)
-	if err != nil {
-		return err
-	}
-	if highest > 0 && !resume {
-		return fmt.Errorf("posts/%s already holds posts up to %s-%d, so another machine may be using that name: "+
-			"choose another name, or pass --resume if they are this machine's own", node, node, highest)
-	}
-	if err := b.raiseHighwater(highest); err != nil {
-		return err
-	}
-	return writeFileAtomic(filepath.Join(b.State, "node"), []byte(node+"\n"))
+	return nil
 }
 
 // highest returns the highest post number in node's directory.
