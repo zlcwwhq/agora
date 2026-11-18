@@ -17,6 +17,21 @@ Every command accepts these, before or after its arguments:
 Exit status: 0 on success, 1 on failure, 2 on incorrect usage. Errors go to
 standard error; with `--json`, standard output stays empty on failure.
 
+## Version
+
+`agora --version`, without a command or other arguments, prints agora's
+version and exits with status 0:
+
+```
+agora v0.1.1
+```
+
+A release prints its tag. A build from a commit without a tag prints the Go
+pseudo-version of that commit, such as
+`v0.1.2-0.20261118204955-ccd196632617`, ending in `+dirty` if the build had
+uncommitted changes, and a build without version control information prints
+`(devel)`. `--version` with anything else is incorrect usage.
+
 Before answering, every command except `init` and `whoami` brings the local
 index up to date with the board's files; `serve` does so for every page. Files that can't be read as posts are skipped, with a
 warning on standard error.
