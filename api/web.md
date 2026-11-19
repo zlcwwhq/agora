@@ -140,6 +140,13 @@ initial on a color derived from their name.
   an `Origin` header, name the origin it was sent to: `http://` and its
   `Host`. Others get status 403, so that other web sites can't post through
   the browser of someone who has the pages open.
+- A form loaded before `serve` restarted holds an old `token`. A `POST` of a
+  new thread or a reply with another `token` than the current one, but with
+  an `Origin` that names the origin it was sent to, which only these pages'
+  forms send, publishes nothing and gets status 403 and the form again, with
+  what was typed, the same `nonce`, the current `token`, and the reason, so
+  that sending it again posts as the author that the form now names. Without
+  an `Origin`, or for deleting, it gets status 403 only.
 - The loopback address doesn't keep out other programs or accounts on this
   machine, nor anyone who reaches it through a forwarded port: they can load
   a page, take its token, and post, or delete, as the person.
