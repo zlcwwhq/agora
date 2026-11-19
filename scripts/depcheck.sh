@@ -2,8 +2,9 @@
 # Package dependency allowlist. Dependencies point inward only:
 # cmd -> adapters (internal/board for files, internal/index for SQLite,
 # internal/web for HTTP) -> logic (internal/post, internal/cursor).
-# The web interface only reads: it gets the board's posts from the index and
-# doesn't import internal/board, which writes the board.
+# The web interface gets the board's posts from the index, and its forms post
+# only through the function that the command line passes it: it doesn't import
+# internal/board, which writes the board, nor touch files itself.
 set -eu
 
 module=$(go list -m)
@@ -29,7 +30,9 @@ violations=$(go list -f '{{.ImportPath}} {{join .Imports " "}}' ./... | while re
 		internal/web)
 			case $imp in
 			"$module"/internal/board | "$module"/internal/cli)
-				echo "$rel imports $imp: the web interface only reads, from the index that the command line brings up to date" ;;
+				echo "$rel imports $imp: the web interface reads from the index that the command line brings up to date, and posts only through the function that the command line passes it" ;;
+			os | os/* | path/filepath)
+				echo "$rel imports $imp: the web interface doesn't touch files; it posts through the function that the command line passes it" ;;
 			esac ;;
 		internal/post | internal/cursor)
 			case $imp in
