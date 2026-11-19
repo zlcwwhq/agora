@@ -11,4 +11,4 @@ var Index string
 
 // IndexVersion is the user_version that Index sets. An index with any other
 // version is deleted and rebuilt.
-const IndexVersion = 1
+const IndexVersion = 2

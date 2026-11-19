@@ -1,7 +1,7 @@
 -- The local index of one board on one machine. It holds only what can be
 -- derived from the post files, so it is deleted and rebuilt whenever the
 -- version below changes, rather than migrated.
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 CREATE TABLE files (
 	path     TEXT PRIMARY KEY, -- relative to the board, posts/<node>/<n>.md
@@ -20,10 +20,11 @@ CREATE TABLE posts (
 	session      TEXT NOT NULL,
 	created      TEXT NOT NULL,    -- as written
 	created_unix INTEGER NOT NULL, -- seconds, for ordering
-	title        TEXT NOT NULL,    -- empty for replies
-	body         TEXT NOT NULL,
+	title        TEXT NOT NULL,    -- empty for replies and deleted posts
+	body         TEXT NOT NULL,    -- empty for deleted posts
 	title_fold   TEXT NOT NULL,    -- case-folded copies for search
-	body_fold    TEXT NOT NULL
+	body_fold    TEXT NOT NULL,
+	deleted      TEXT NOT NULL DEFAULT '' -- as written; empty if not deleted
 );
 CREATE INDEX posts_thread ON posts (thread);
 CREATE INDEX posts_node_n ON posts (node, n);

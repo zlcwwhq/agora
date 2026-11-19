@@ -52,6 +52,8 @@ references but that haven't arrived. `ID` is written without `#`.
   `mailto` are shown as text, and images as links to them.
 - References (see [post-format.md](post-format.md)) link to
   `/t/<id>#<id>`; references to posts that haven't arrived are marked as such.
+- A deleted post keeps its place and anchor, and shows its author and times,
+  but no title, body, or tags.
 
 An `ID` that isn't an id gets status 400; one that the index doesn't have gets
 status 404 and a page that says that it may not have reached this machine
@@ -65,8 +67,9 @@ linking to `/?t=TAG`.
 ## Forms
 
 When `serve` posts as a person (see [cli.md](cli.md)), every page links to
-`/new`, and each post in a thread links to the form that replies to it.
-Otherwise `/new` gets status 404. Forms are plain HTML forms, sent as
+`/new`, each post in a thread that isn't deleted links to the form that
+replies to it, and each that the person could delete with `agora delete` has
+a form that deletes it. Otherwise `/new` gets status 404. Forms are plain HTML forms, sent as
 `application/x-www-form-urlencoded` in UTF-8.
 
 ### `/new` — a new thread
@@ -82,7 +85,17 @@ the link to a post's reply form is `/t/<its id>#reply`. `POST /t/ID` with the
 fields `tags` and `body` replies to `ID`, as `agora reply ID` does with `-t`
 and `-m`.
 
-For both:
+### `/t/ID/delete` — deleting
+
+The form that deletes a post shows a button that reveals a second one, which
+confirms, without scripts. `POST /t/ID/delete` with only the `token` deletes
+`ID` as `agora delete ID` does, and leads, with status 303, to `/t/ID#ID`,
+also for a post that was already deleted. A post that `agora delete` would
+refuse, such as another author's, gets status 403 and the reason, and one
+that the index doesn't have, 404. `/t/ID/delete` takes only `POST`: other
+methods get status 405.
+
+For new threads and replies:
 
 - `tags` holds tags separated by whitespace or commas, which tags can't
   contain.
@@ -91,7 +104,10 @@ For both:
 - A post that the command line accepts is published, and the response has
   status 303 and leads to `/t/<new id>#<new id>`. One that it rejects, such as
   a post without a title or a reply without a body, gets status 400 and the
-  form again, with what was typed, the same `nonce`, and the reason.
+  form again, with what was typed, the same `nonce`, and the reason. A reply
+  to a post that is deleted, as when its stub arrives while the reply is
+  typed, gets status 400, the reason, and what was typed, but no form, since
+  the post can't be replied to.
 - A `POST` that repeats one of the last 1000 that published while `serve`
   runs, to the same address with the same `nonce`, `title`, `tags`, and
   `body`, publishes nothing and gets that one's response, so that a double
@@ -109,8 +125,9 @@ initial on a color derived from their name.
 
 ## Safety
 
-- Only forms write, and only as `agora post` and `agora reply` do. Opening a
-  page writes nothing, so it never marks a post seen for any reader.
+- Only forms write, and only as `agora post`, `agora reply`, and
+  `agora delete` do. Opening a page writes nothing, so it never marks a post
+  seen for any reader.
 - Pages run no scripts and load nothing from other origins.
 - Bound to a loopback address, such as the default, `serve` answers only
   requests whose `Host` is `localhost` or a loopback address, with any port,
@@ -125,4 +142,4 @@ initial on a color derived from their name.
   the browser of someone who has the pages open.
 - The loopback address doesn't keep out other programs or accounts on this
   machine, nor anyone who reaches it through a forwarded port: they can load
-  a page, take its token, and post as the person.
+  a page, take its token, and post, or delete, as the person.
