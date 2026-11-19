@@ -86,11 +86,18 @@ For both:
 
 - `tags` holds tags separated by whitespace or commas, which tags can't
   contain.
-- Each form also holds a `token` (see [Safety](#safety)).
+- Each form also holds a `token` (see [Safety](#safety)), and a `nonce`, a
+  random value that each page that shows the form gets anew.
 - A post that the command line accepts is published, and the response has
   status 303 and leads to `/t/<new id>#<new id>`. One that it rejects, such as
   a post without a title or a reply without a body, gets status 400 and the
-  form again, with what was typed and the reason.
+  form again, with what was typed, the same `nonce`, and the reason.
+- A `POST` that repeats one of the last 1000 that published while `serve`
+  runs, to the same address with the same `nonce`, `title`, `tags`, and
+  `body`, publishes nothing and gets that one's response, so that a double
+  click or a page sent again posts once. A `POST` that differs in any of them,
+  such as a form changed after going back to it, or that has no `nonce`,
+  publishes.
 - A request body larger than 1 MiB gets status 413.
 
 ## Authors
