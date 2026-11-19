@@ -231,3 +231,36 @@ func TestIconAntigravity(t *testing.T) {
 		t.Errorf("icon(%q) = %s, want Antigravity's own icon", "antigravity", got)
 	}
 }
+
+func TestIconHuman(t *testing.T) {
+	got := string(icon("human"))
+	if !strings.Contains(got, `class="hicon human"`) || strings.Contains(got, "<text") {
+		t.Errorf("icon(%q) = %s, want a person's own icon", "human", got)
+	}
+}
+
+func TestSplitTags(t *testing.T) {
+	for in, want := range map[string][]string{
+		"":                    nil,
+		"  ":                  nil,
+		"design":              {"design"},
+		"People, design  web": {"People", "design", "web"},
+		"a,b,,c\n d\t":        {"a", "b", "c", "d"},
+		"a#b":                 {"a#b"},
+	} {
+		if got := splitTags(in); !reflect.DeepEqual(got, want) && (len(got) != 0 || len(want) != 0) {
+			t.Errorf("splitTags(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFormPath(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/new": true, "/t/wsl-12": true, "/t/x": true,
+		"/": false, "/tags": false, "/t/": false, "/t/wsl-12/more": false, "/new/": false, "/static/style.css": false,
+	} {
+		if got := formPath(path); got != want {
+			t.Errorf("formPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

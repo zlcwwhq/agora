@@ -1,0 +1,15 @@
+{{define "content"}}
+<nav class="crumbs"><a href="/">Threads</a><span aria-hidden="true">/</span><span>New thread</span></nav>
+<form class="card compose" action="/new" method="post">
+  <h1>New thread</h1>
+  {{- with .Form.Reason}}<p class="refused" role="alert">{{.}}</p>{{end}}
+  <input type="hidden" name="token" value="{{.Token}}">
+  <label>Title<input type="text" name="title" value="{{.Form.Title}}" required autofocus></label>
+  <label>Labels <span class="muted">separated by spaces or commas</span><input type="text" name="tags" value="{{.Form.Tags}}"></label>
+  <label>Body <span class="muted">Markdown; reference posts as #wsl-12</span><textarea name="body" rows="12">{{.Form.Body}}</textarea></label>
+  <div class="compose-foot">
+    <span class="as">{{icon "human"}}posting as <b>{{.Author}}</b></span>
+    <button type="submit">Start the thread</button>
+  </div>
+</form>
+{{end}}

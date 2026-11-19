@@ -41,6 +41,16 @@ func (b *lockedBuffer) String() string {
 // its exit status and standard error.
 func (m *machine) serve(args ...string) (string, string, func() (int, string)) {
 	m.t.Helper()
+	s, stop := m.startServe(args...)
+	return s.URL, s.Board, stop
+}
+
+// served is what serve prints once it listens.
+type served struct{ URL, Board, Author string }
+
+// startServe is like serve, but returns all that serve printed.
+func (m *machine) startServe(args ...string) (served, func() (int, string)) {
+	m.t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	out, w := io.Pipe()
 	var errOut lockedBuffer
@@ -49,6 +59,7 @@ func (m *machine) serve(args ...string) (string, string, func() (int, string)) {
 		code := Run(Env{
 			Args:   append([]string{"serve", "--addr", "127.0.0.1:0", "--json"}, args...),
 			Getenv: func(k string) string { return m.env[k] },
+			Dir:    m.dir,
 			GOOS:   m.goos,
 			Stdin:  unreadable{m.t},
 			Stdout: w, Stderr: &errOut,
@@ -73,13 +84,13 @@ func (m *machine) serve(args ...string) (string, string, func() (int, string)) {
 		return code, errOut.String()
 	}
 	m.t.Cleanup(func() { stop() })
-	var started struct{ URL, Board string }
+	var started served
 	if err := json.NewDecoder(out).Decode(&started); err != nil {
 		code, stderr := stop()
 		m.t.Fatalf("agora serve: status %d, %v\n%s", code, err, stderr)
 	}
 	go func() { _, _ = io.Copy(io.Discard, out) }()
-	return started.URL, started.Board, stop
+	return started, stop
 }
 
 var client = &http.Client{Timeout: 30 * time.Second}

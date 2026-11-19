@@ -158,15 +158,38 @@ func terms(q string) []string {
 // base is what every page's layout shows.
 type base struct {
 	Board, Node string
-	// Nav is the current section: threads, tags, or empty.
+	// Nav is the current section: threads, tags, new, or empty.
 	Nav   string
 	Title string
 	// Query fills the search form.
 	Query query
+	// Forms says whether pages offer forms, which post as Author and carry
+	// Token.
+	Forms         bool
+	Author, Token string
 }
 
 func (s *server) base(nav, title string, q query) base {
-	return base{Board: s.cfg.Board, Node: s.cfg.Node, Nav: nav, Title: title, Query: q}
+	b := base{Board: s.cfg.Board, Node: s.cfg.Node, Nav: nav, Title: title, Query: q, Forms: s.forms}
+	if s.forms {
+		b.Author, b.Token = s.cfg.Author, s.token
+	}
+	return b
+}
+
+// form is what a form holds: what was typed, and why posting it was refused.
+type form struct {
+	Title, Tags, Body, Reason string
+}
+
+// newView is the data of /new.
+type newView struct {
+	base
+	Form form
+}
+
+func (s *server) newThread(_ *http.Request, _ *index.DB) (string, any, error) {
+	return "new", newView{base: s.base("new", "New thread", query{})}, nil
 }
 
 // stamp is a time as pages show it.
@@ -475,41 +498,53 @@ type threadView struct {
 	Participants []participant
 	Backlinks    []backlinkView
 	Unresolved   []string
+	// Target is the post that the address names, which the form replies to,
+	// or empty if it hasn't arrived.
+	Target string
+	Form   form
 }
 
 func (s *server) thread(r *http.Request, idx *index.DB) (string, any, error) {
-	raw := r.PathValue("id")
+	v, err := s.threadView(r.PathValue("id"), idx)
+	if err != nil {
+		return "", nil, err
+	}
+	return "thread", v, nil
+}
+
+// threadView builds the page of the thread that contains the post raw.
+func (s *server) threadView(raw string, idx *index.DB) (threadView, error) {
 	target, err := post.ParseID(strings.TrimPrefix(raw, "#"))
 	if err != nil {
-		return "", nil, badRequest("%q isn't a post id, such as wsl-12.", raw)
+		return threadView{}, badRequest("%q isn't a post id, such as wsl-12.", raw)
 	}
 	root := target
 	e, ok, err := idx.Get(target)
 	if err != nil {
-		return "", nil, err
+		return threadView{}, err
 	}
 	if ok {
 		root = e.ThreadID()
 	}
 	posts, err := idx.ThreadPosts(root)
 	if err != nil {
-		return "", nil, err
+		return threadView{}, err
 	}
 	if len(posts) == 0 {
-		return "", nil, httpError{http.StatusNotFound,
+		return threadView{}, httpError{http.StatusNotFound,
 			"There is no post " + target.String() + " here. It may not have reached this machine yet."}
 	}
 	info, err := idx.ThreadInfo(root)
 	if err != nil {
-		return "", nil, err
+		return threadView{}, err
 	}
 	backlinks, err := idx.Backlinks(root)
 	if err != nil {
-		return "", nil, err
+		return threadView{}, err
 	}
 	unresolved, err := idx.Unresolved(root)
 	if err != nil {
-		return "", nil, err
+		return threadView{}, err
 	}
 
 	title := info.Title
@@ -517,6 +552,11 @@ func (s *server) thread(r *http.Request, idx *index.DB) (string, any, error) {
 		title = root.String()
 	}
 	v := threadView{base: s.base("", title, query{}), Thread: s.threadRow(info)}
+	if ok {
+		// A post that hasn't arrived, such as a thread's root, can't be
+		// replied to here.
+		v.Target = target.String()
+	}
 	missing := map[post.ID]bool{}
 	for _, u := range unresolved {
 		missing[u] = true
@@ -528,7 +568,7 @@ func (s *server) thread(r *http.Request, idx *index.DB) (string, any, error) {
 	for _, p := range posts {
 		body, err := render(p.Body, arrived)
 		if err != nil {
-			return "", nil, err
+			return threadView{}, err
 		}
 		pv := postView{
 			ID: p.ID.String(), Harness: p.Harness, Session: p.Session, Node: p.ID.Node,
@@ -554,7 +594,7 @@ func (s *server) thread(r *http.Request, idx *index.DB) (string, any, error) {
 	for _, b := range backlinks {
 		v.Backlinks = append(v.Backlinks, backlinkView{b.ID.String(), b.To.String(), b.Thread.String(), b.Title})
 	}
-	return "thread", v, nil
+	return v, nil
 }
 
 // threadURL is the address of a post in its thread.

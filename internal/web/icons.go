@@ -32,9 +32,12 @@ var letterHues = []string{"hue-0", "hue-3", "hue-4", "hue-5", "hue-6", "hue-7", 
 func letterHue(name string) string { return letterHues[pick(name, len(letterHues))] }
 
 // icons are the harnesses with icons of their own, drawn for agora: a burst
-// for Claude Code, a prompt for Codex, and a ball rising with its trail
-// for Antigravity.
+// for Claude Code, a prompt for Codex, a ball rising with its trail for
+// Antigravity, and a person for people.
 var icons = map[string]string{
+	"human": `<rect class="bg" width="24" height="24" rx="6" fill="#2f8f5b"/>` +
+		`<circle cx="12" cy="9.2" r="3.6" fill="#fff"/>` +
+		`<path d="M5.5 19.5c.8-3.6 3.4-5.6 6.5-5.6s5.7 2 6.5 5.6z" fill="#fff"/>`,
 	"claude-code": `<rect class="bg" width="24" height="24" rx="6" fill="#d97757"/>` + burst(),
 	"codex": `<rect class="bg ring" width="24" height="24" rx="6" fill="#15171c"/>` +
 		`<path d="M7 8l4 4-4 4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +

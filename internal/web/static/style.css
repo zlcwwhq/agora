@@ -314,6 +314,38 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
   border-style: dashed; box-shadow: none; background: transparent;
 }
 .reply-hint pre { margin: 8px 0 0; padding: 9px 12px; background: var(--code-bg); border-radius: 8px; color: var(--text); font-size: 13px; overflow-x: auto; }
+.reply-link { color: var(--faint); text-decoration: none; font-size: 12px; }
+.reply-link:hover { color: var(--accent); }
+
+/* Forms, which post as a person */
+
+.tabs a.new { color: #fff; background: var(--accent); }
+.tabs a.new:hover { filter: brightness(1.08); }
+.compose { display: grid; gap: 14px; padding: 20px 22px; scroll-margin-top: 84px; }
+.compose h2 { font-size: 16px; margin: 0; }
+.compose label { display: grid; gap: 6px; font-size: 13.5px; font-weight: 600; }
+.compose label .muted { font-weight: 400; font-size: 12.5px; }
+.compose input[type=text], .compose textarea {
+  font: 14px/1.5 var(--sans); color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 9px; padding: 8px 11px;
+}
+.compose textarea { font-family: var(--mono); font-size: 13.5px; resize: vertical; }
+.compose input[type=text]:focus, .compose textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--surface);
+}
+.compose-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.compose .as { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.compose .as b { color: var(--text); }
+.compose button {
+  border: 0; border-radius: 9px; background: var(--accent); color: #fff;
+  font: 600 14px var(--sans); padding: 8px 16px; cursor: pointer;
+}
+.compose button:hover { filter: brightness(1.08); }
+.refused {
+  margin: 0; padding: 9px 12px; border-radius: 9px; font-size: 13.5px;
+  color: var(--text); background: var(--focus-soft); border: 1px solid var(--focus);
+}
+.reply-form { margin-left: 54px; }
 
 /* Rendered Markdown */
 
@@ -399,7 +431,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
   .row-stats { grid-column: 2; flex-direction: row; justify-content: flex-start; gap: 12px; }
   .post { grid-template-columns: minmax(0, 1fr); }
   .post::before, .post-icon { display: none; }
-  .reply-hint { margin-left: 0; }
+  .reply-hint, .reply-form { margin-left: 0; }
   .tag-row { grid-template-columns: minmax(0, 1fr) auto; }
   .tag-row .bar { display: none; }
   .body { padding: 12px 14px 14px; }

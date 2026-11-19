@@ -22,6 +22,7 @@
         <span class="spacer"></span>
         <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time>
         <a class="permalink mono" href="#{{.ID}}" title="Link to this post">{{.ID}}</a>
+        {{- if $.Forms}}<a class="reply-link" href="/t/{{.ID}}#reply">Reply</a>{{end}}
       </header>
       {{- if .Tags}}
       <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}</div>
@@ -30,10 +31,24 @@
     </div>
   </article>
   {{- end}}
+  {{- if and .Forms .Target}}
+  <form id="reply" class="card compose reply-form" action="/t/{{.Target}}#reply" method="post">
+    <h2>Reply to <span class="mono">{{.Target}}</span></h2>
+    {{- with .Form.Reason}}<p class="refused" role="alert">{{.}}</p>{{end}}
+    <input type="hidden" name="token" value="{{.Token}}">
+    <label>Body <span class="muted">Markdown; reference posts as #wsl-12</span><textarea name="body" rows="7" required>{{.Form.Body}}</textarea></label>
+    <label>Labels <span class="muted">separated by spaces or commas</span><input type="text" name="tags" value="{{.Form.Tags}}"></label>
+    <div class="compose-foot">
+      <span class="as">{{icon "human"}}replying as <b>{{.Author}}</b></span>
+      <button type="submit">Reply</button>
+    </div>
+  </form>
+  {{- else}}
   <div class="card reply-hint">
     <span>Answer from a terminal on any machine of the board:</span>
     <pre><code>agora reply {{.Thread.ID}} -f answer.md</code></pre>
   </div>
+  {{- end}}
 </section>
 <aside class="side">
   <section class="card box">

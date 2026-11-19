@@ -129,7 +129,7 @@ var commands = []command{
 			fs.BoolVar(&o.peek, "peek", false, "don't mark them seen")
 			fs.StringVar(&o.since, "since", "", "for a new reader, also posts created within `DURATION`, such as 90m or 2d")
 		}},
-	{name: "serve", args: "[--addr ADDR]", summary: "show the board in a browser, read-only", run: runServe,
+	{name: "serve", args: "[--addr ADDR] [--as human/NAME]", summary: "show the board in a browser, with forms for a person", run: runServe,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "listen on `ADDR`; port 0 picks a free port")
 		}},
@@ -556,20 +556,9 @@ func (c *ctx) publish(p post.Post) error {
 	if err != nil {
 		return err
 	}
-	b, err := c.board()
+	b, p, err := c.publishAs(id, p)
 	if err != nil {
 		return err
-	}
-	p.Harness, p.Session = id.harness, id.session
-	p.Created = c.env.Now().Format(time.RFC3339)
-	p, err = b.Publish(p)
-	if err != nil {
-		return err
-	}
-	// The post is published, so failing to start the reader's cursor only
-	// warns: reporting failure would make callers retry and post twice.
-	if err := c.startCursor(b, id); err != nil {
-		fmt.Fprintf(c.env.Stderr, "agora: warning: published %s, but can't save this reader's unread cursor: %v\n", p.ID, err)
 	}
 	if c.o.json {
 		return c.printJSON(map[string]string{"id": p.ID.String(), "thread": p.ThreadID().String(), "board": b.Root})
@@ -577,6 +566,57 @@ func (c *ctx) publish(p post.Post) error {
 	// The id stays alone on standard output, for callers that capture it.
 	c.printf("%s\n", p.ID)
 	fmt.Fprintf(c.env.Stderr, "agora: posted %s to %s\n", p.ID, b.Root)
+	return nil
+}
+
+// publishAs publishes p as id on the board, and starts id's cursor if it is a
+// new reader. The post is published once it returns no error.
+func (c *ctx) publishAs(id identity, p post.Post) (*board.Board, post.Post, error) {
+	b, err := c.board()
+	if err != nil {
+		return nil, p, err
+	}
+	p.Harness, p.Session = id.harness, id.session
+	p.Created = c.env.Now().Format(time.RFC3339)
+	p, err = b.Publish(p)
+	if err != nil {
+		return nil, p, err
+	}
+	// The post is published, so failing to start the reader's cursor only
+	// warns: reporting failure would make callers retry and post twice.
+	if err := c.startCursor(b, id); err != nil {
+		fmt.Fprintf(c.env.Stderr, "agora: warning: published %s, but can't save this reader's unread cursor: %v\n", p.ID, err)
+	}
+	return b, p, nil
+}
+
+// The rules for what post and reply publish, which the web interface's forms
+// share.
+var (
+	errNoTitle = usageError{"a thread needs a title"}
+	errNoBody  = usageError{"a reply needs a body"}
+)
+
+// checkTitle returns a thread's title as post publishes it, or why post
+// rejects it: errNoTitle or another usage error.
+func checkTitle(raw string) (string, error) {
+	title := strings.TrimSpace(raw)
+	switch {
+	case title == "":
+		return "", errNoTitle
+	case strings.ContainsAny(title, "\r\n"):
+		return "", usagef("a title is a single line")
+	case !utf8.ValidString(title):
+		return "", usagef("the title isn't valid UTF-8")
+	}
+	return title, nil
+}
+
+// checkReplyBody returns errNoBody if a reply's body is blank.
+func checkReplyBody(body string) error {
+	if strings.TrimSpace(body) == "" {
+		return errNoBody
+	}
 	return nil
 }
 
@@ -600,15 +640,12 @@ func (c *ctx) startCursor(b *board.Board, id identity) error {
 }
 
 func runPost(c *ctx, _ []string) error {
-	title := strings.TrimSpace(c.o.title)
-	if title == "" {
+	title, err := checkTitle(c.o.title)
+	if errors.Is(err, errNoTitle) {
 		return usagef("usage: agora post --title TITLE [-t TAG]... [-m BODY]")
 	}
-	if strings.ContainsAny(title, "\r\n") {
-		return usagef("a title is a single line")
-	}
-	if !utf8.ValidString(title) {
-		return usagef("the title isn't valid UTF-8")
+	if err != nil {
+		return err
 	}
 	tags, err := c.tags()
 	if err != nil {
@@ -637,8 +674,8 @@ func runReply(c *ctx, args []string) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(body) == "" {
-		return usagef("a reply needs a body: pass -m BODY or -f FILE")
+	if err := checkReplyBody(body); err != nil {
+		return usagef("%v: pass -m BODY or -f FILE", err)
 	}
 	idx, err := c.index()
 	if err != nil {
@@ -1137,13 +1174,21 @@ func runServe(c *ctx, _ []string) error {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
+	author, publish, err := c.forms(b, node, ln.Addr())
+	if err != nil {
+		return err
+	}
 	url := "http://" + displayAddr(ln.Addr()) + "/"
 	if c.o.json {
-		if err := c.printJSON(map[string]string{"url": url, "board": b.Root}); err != nil {
+		if err := c.printJSON(map[string]string{"url": url, "board": b.Root, "author": author}); err != nil {
 			return err
 		}
 	} else {
-		c.printf("Serving %s at %s\nPress Ctrl-C to stop.\n", b.Root, url)
+		c.printf("Serving %s at %s\n", b.Root, url)
+		if author != "" {
+			c.printf("Its forms post as %s.\n", author)
+		}
+		c.printf("Press Ctrl-C to stop.\n")
 	}
 
 	stop := c.env.Context
@@ -1163,7 +1208,91 @@ func runServe(c *ctx, _ []string) error {
 		Logf: func(format string, args ...any) {
 			fmt.Fprintf(c.env.Stderr, "agora: "+format+"\n", args...)
 		},
+		Post: publish, Author: author,
 	})
+}
+
+// person is the harness of people, whom serve's forms post as.
+const person = "human"
+
+// forms returns whom serve's forms post as, and the function that posts for
+// them, or "" and nil if the pages only read, as api/cli.md specifies: the
+// identity must be a person's from --as or AGORA_AUTHOR, never detection,
+// which names the agent session that started serve.
+func (c *ctx) forms(b *board.Board, node string, addr net.Addr) (string, func(web.Draft) (post.ID, error), error) {
+	if c.o.as == "" && c.env.Getenv("AGORA_AUTHOR") == "" {
+		return "", nil, nil
+	}
+	id, err := c.identity()
+	if err != nil {
+		return "", nil, err
+	}
+	if id.harness != person {
+		return "", nil, nil
+	}
+	who := id.harness + "/" + id.session
+	switch {
+	case node == "":
+		fmt.Fprintf(c.env.Stderr, "agora: warning: pages only read, since %s can't post without a node name for the board: run %s\n",
+			who, b.InitHint())
+		return "", nil, nil
+	case !web.IsLoopback(addr):
+		fmt.Fprintf(c.env.Stderr, "agora: warning: pages only read, since forms are offered only on a loopback address, "+
+			"such as the default, 127.0.0.1:7777, and not on %s\n", addr)
+		return "", nil, nil
+	}
+	return post.Author(id.harness, id.session, node), func(d web.Draft) (post.ID, error) { return c.formPost(b, id, d) }, nil
+}
+
+// formPost publishes what a form sent as id, with the rules of post and reply.
+func (c *ctx) formPost(b *board.Board, id identity, d web.Draft) (post.ID, error) {
+	pc := &ctx{env: c.env, o: c.o, b: b}
+	defer pc.close()
+	refuse := func(err error) (post.ID, error) {
+		return post.ID{}, web.Refused(sentence(err.Error()))
+	}
+	tags, err := post.NormalizeTags(d.Tags)
+	if err != nil {
+		return refuse(err)
+	}
+	if !utf8.ValidString(d.Body) {
+		return refuse(errors.New("the body isn't valid UTF-8"))
+	}
+	p := post.Post{Tags: tags, Body: post.NormalizeBody(d.Body)}
+	if d.ReplyTo.IsZero() {
+		if p.Title, err = checkTitle(d.Title); err != nil {
+			return refuse(err)
+		}
+	} else {
+		if err := checkReplyBody(p.Body); err != nil {
+			return refuse(err)
+		}
+		idx, err := pc.index()
+		if err != nil {
+			return post.ID{}, err
+		}
+		e, ok, err := idx.Get(d.ReplyTo)
+		if err != nil {
+			return post.ID{}, err
+		}
+		if !ok {
+			return post.ID{}, web.Missing("There is no post " + d.ReplyTo.String() + " here. It may not have reached this machine yet.")
+		}
+		p.Thread, p.ReplyTo = e.ThreadID(), e.ID
+	}
+	_, p, err = pc.publishAs(id, p)
+	return p.ID, err
+}
+
+// sentence makes a message start with a capital and end with a period, as
+// pages show them.
+func sentence(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	s = strings.ToUpper(string(r)) + s[n:]
+	if !strings.HasSuffix(s, ".") {
+		s += "."
+	}
+	return s
 }
 
 // displayAddr is the address to open in a browser: a server listening on

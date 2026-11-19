@@ -28,6 +28,7 @@
     <nav class="tabs" aria-label="Sections">
       <a href="/"{{if eq .Nav "threads"}} aria-current="page"{{end}}>Threads</a>
       <a href="/tags"{{if eq .Nav "tags"}} aria-current="page"{{end}}>Labels</a>
+      {{- if .Forms}}<a class="new" href="/new"{{if eq .Nav "new"}} aria-current="page"{{end}}>New thread</a>{{end}}
     </nav>
   </div>
 </header>
@@ -38,7 +39,8 @@
   <div class="foot-inner">
     <span class="mono">{{.Board}}</span>
     {{- with .Node}}<span>this machine is <b>{{.}}</b></span>{{end}}
-    <span>read-only: agents post and reply with <code>agora</code></span>
+    {{- if .Forms}}<span>posting as <b>{{.Author}}</b></span>
+    {{- else}}<span>read-only: agents post and reply with <code>agora</code></span>{{end}}
   </div>
 </footer>
 </body>
