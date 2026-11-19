@@ -15,6 +15,7 @@ func main() {
 	os.Exit(cli.Run(cli.Env{
 		Args:    os.Args[1:],
 		Getenv:  os.Getenv,
+		Dir:     workingDir(),
 		GOOS:    runtime.GOOS,
 		Stdin:   os.Stdin,
 		Stdout:  os.Stdout,
@@ -22,6 +23,16 @@ func main() {
 		Now:     time.Now,
 		Version: version(),
 	}))
+}
+
+// workingDir returns the working directory, or "" if it can't be determined,
+// as when it has been removed.
+func workingDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // version is the version that the go command stamped into the binary: the

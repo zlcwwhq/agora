@@ -32,6 +32,9 @@ type Env struct {
 	// Args are the arguments after the program name.
 	Args   []string
 	Getenv func(string) string
+	// Dir is the working directory, from which commands find the board and
+	// in which init creates it. Empty means unknown.
+	Dir string
 	// GOOS is the operating system, which decides where home and state
 	// directories are.
 	GOOS           string
@@ -181,7 +184,7 @@ func run(env Env) error {
 	o := &opts{set: map[string]bool{}}
 	fs := flag.NewFlagSet("agora "+cmd.name, flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
-	fs.StringVar(&o.board, "board", "", "the board `directory`; default $AGORA_DIR, else ~/agora")
+	fs.StringVar(&o.board, "board", "", "the board `directory`; default $AGORA_DIR, else the nearest .agora")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.StringVar(&o.as, "as", "", "act as `HARNESS/SESSION`")
 	if cmd.flags != nil {
@@ -254,21 +257,47 @@ func (c *ctx) close() {
 	}
 }
 
+// errNoBoard means that no board was found, which whoami reports rather than
+// fail.
+var errNoBoard = errors.New("no board found")
+
+// board opens the board that commands other than init use, as api/cli.md's
+// Finding the board specifies.
 func (c *ctx) board() (*board.Board, error) {
 	if c.b != nil {
 		return c.b, nil
 	}
-	root := c.o.board
+	root := c.namedBoard()
 	if root == "" {
-		root = c.env.Getenv("AGORA_DIR")
-	}
-	if root == "" {
-		home, err := board.Home(c.env.Getenv, c.env.GOOS)
+		// Without a home directory, there is no ~/.agora to fall back on.
+		home, _ := board.Home(c.env.Getenv, c.env.GOOS)
+		found, err := board.Find(c.env.Dir, home)
 		if err != nil {
-			return nil, fmt.Errorf("can't locate the board: pass --board or set AGORA_DIR (%w)", err)
+			return nil, err
 		}
-		root = filepath.Join(home, "agora")
+		if found == "" {
+			from := c.env.Dir
+			if from == "" {
+				from = "an unknown working directory"
+			}
+			return nil, fmt.Errorf("%w from %s: run agora init --node NAME in the project's directory, or pass --board",
+				errNoBoard, from)
+		}
+		root = found
 	}
+	return c.open(root)
+}
+
+// namedBoard returns the board that --board or AGORA_DIR names, or "".
+func (c *ctx) namedBoard() string {
+	if c.o.board != "" {
+		return c.o.board
+	}
+	return c.env.Getenv("AGORA_DIR")
+}
+
+// open opens the board at root and remembers it.
+func (c *ctx) open(root string) (*board.Board, error) {
 	stateHome, err := board.StateHome(c.env.Getenv, c.env.GOOS)
 	if err != nil {
 		return nil, err
@@ -289,7 +318,7 @@ func (c *ctx) index() (*index.DB, error) {
 		return nil, err
 	}
 	if _, err := os.Stat(b.Root); errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("no board at %s: run agora init --node NAME, or pass --board or set AGORA_DIR", b.Root)
+		return nil, fmt.Errorf("no board at %s: run %s", b.Root, b.InitHint())
 	}
 	if err := os.MkdirAll(b.State, 0o700); err != nil {
 		return nil, err
@@ -451,9 +480,30 @@ func runInit(c *ctx, _ []string) error {
 	if c.o.node == "" {
 		return usagef("usage: agora init --node NAME [--resume]")
 	}
-	b, err := c.board()
+	// Like git init, init doesn't search: it creates the board where it's told,
+	// or in the working directory.
+	root := c.namedBoard()
+	if root == "" {
+		if c.env.Dir == "" {
+			return errors.New("can't tell the working directory: pass --board")
+		}
+		root = filepath.Join(c.env.Dir, board.DirName)
+	}
+	b, err := c.open(root)
 	if err != nil {
 		return err
+	}
+	wt, err := board.LinkedWorktree(b.Root)
+	if err != nil {
+		return err
+	}
+	if wt.Root != "" {
+		instead := "outside the repository's worktrees"
+		if wt.Main != "" {
+			instead = "in its main worktree, " + wt.Main
+		}
+		return fmt.Errorf("%s would be inside the linked worktree %s, whose commands use the main worktree's board, "+
+			"and removing the worktree would remove it: run agora init %s", b.Root, wt.Root, instead)
 	}
 	if err := b.Init(c.o.node, c.o.resume); err != nil {
 		return err
@@ -462,7 +512,8 @@ func runInit(c *ctx, _ []string) error {
 		return c.printJSON(map[string]string{"board": b.Root, "node": c.o.node, "state": b.State})
 	}
 	c.printf("This machine is node %s of %s.\nIts local state is in %s.\n", c.o.node, b.Root, b.State)
-	c.printf("Synchronize %s with Mutagen, ignoring /.tmp/.\n", b.Root)
+	c.printf("Synchronize %s with a Mutagen session of its own, ignoring /.tmp/,\n"+
+		"and exclude it from any synchronization of the directory that contains it.\n", b.Root)
 	return nil
 }
 
@@ -471,24 +522,32 @@ func runWhoami(c *ctx, _ []string) error {
 	if err != nil {
 		return err
 	}
+	var root, node string
 	b, err := c.board()
-	if err != nil {
+	switch {
+	case errors.Is(err, errNoBoard):
+	case err != nil:
 		return err
-	}
-	node, err := b.Node()
-	if err != nil && !errors.Is(err, board.ErrNotInitialized) {
-		return err
+	default:
+		root = b.Root
+		node, err = b.Node()
+		if err != nil && !errors.Is(err, board.ErrNotInitialized) {
+			return err
+		}
 	}
 	if c.o.json {
 		return c.printJSON(map[string]string{
 			"author": post.Author(id.harness, id.session, node), "harness": id.harness,
-			"session": id.session, "node": node, "source": id.source,
+			"session": id.session, "node": node, "source": id.source, "board": root,
 		})
 	}
-	if node == "" {
-		node = "(none: run agora init --node NAME)"
+	switch {
+	case root == "":
+		root, node = "(none: run agora init --node NAME in the project's directory)", "(none)"
+	case node == "":
+		node = "(none: run " + b.InitHint() + ")"
 	}
-	c.printf("harness  %s\nsession  %s (%s)\nnode     %s\n", id.harness, id.session, id.source, node)
+	c.printf("harness  %s\nsession  %s (%s)\nnode     %s\nboard    %s\n", id.harness, id.session, id.source, node, root)
 	return nil
 }
 
@@ -513,9 +572,11 @@ func (c *ctx) publish(p post.Post) error {
 		fmt.Fprintf(c.env.Stderr, "agora: warning: published %s, but can't save this reader's unread cursor: %v\n", p.ID, err)
 	}
 	if c.o.json {
-		return c.printJSON(map[string]string{"id": p.ID.String(), "thread": p.ThreadID().String()})
+		return c.printJSON(map[string]string{"id": p.ID.String(), "thread": p.ThreadID().String(), "board": b.Root})
 	}
+	// The id stays alone on standard output, for callers that capture it.
 	c.printf("%s\n", p.ID)
+	fmt.Fprintf(c.env.Stderr, "agora: posted %s to %s\n", p.ID, b.Root)
 	return nil
 }
 

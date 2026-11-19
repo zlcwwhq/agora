@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zlcwwhq/agora/internal/board"
 	"github.com/zlcwwhq/agora/internal/testutil"
 )
 
@@ -24,8 +25,10 @@ type machine struct {
 	root string
 	env  map[string]string
 	goos string
-	mu   sync.Mutex
-	now  time.Time
+	// dir is the working directory, empty unless a test sets it.
+	dir string
+	mu  sync.Mutex
+	now time.Time
 }
 
 // unreadable fails the test if a command reads standard input without -f -.
@@ -73,6 +76,7 @@ func (m *machine) runIn(stdin *string, args ...string) (string, string, int) {
 	env := Env{
 		Args:   args,
 		Getenv: func(k string) string { return m.env[k] },
+		Dir:    m.dir,
 		GOOS:   m.goos,
 		Stdin:  unreadable{m.t},
 		Stdout: &out,
@@ -541,7 +545,7 @@ func TestPostStartsCursor(t *testing.T) {
 	} {
 		reader := []string{"--as", "claude-code/" + first[0]}
 		out, errOut, code := a.run(append(first, reader...)...)
-		if code != 0 || errOut != "" {
+		if code != 0 || strings.Contains(errOut, "warning") {
 			t.Fatalf("%s: status %d, stderr %q", first[0], code, errOut)
 		}
 		copyPosts(t, a, b)
@@ -695,17 +699,229 @@ func TestDefaultLocationsOnWindows(t *testing.T) {
 	profile, local := filepath.Join(testutil.TempDir(t), "profile"), filepath.Join(testutil.TempDir(t), "local")
 	m.goos = "windows"
 	m.env = map[string]string{"USERPROFILE": profile, "LOCALAPPDATA": local, "HOME": "/elsewhere", "AGORA_AUTHOR": "codex/s"}
+	// init in %USERPROFILE% creates the board that commands fall back on.
+	m.dir = profile
 	var init struct{ Board, Node, State string }
 	m.json(&init, "init", "--node", "win")
 	// init resolves symbolic links in the board's path, such as macOS's /var
 	// and Windows' short names in %TEMP%, so resolve the expected path too.
-	if want, err := filepath.EvalSymlinks(filepath.Join(profile, "agora")); err != nil || init.Board != want {
-		t.Fatalf("board %s, want it under %%USERPROFILE%% (%s, %v)", init.Board, want, err)
+	if want, err := filepath.EvalSymlinks(filepath.Join(profile, ".agora")); err != nil || init.Board != want {
+		t.Fatalf("board %s, want %%USERPROFILE%%\\.agora (%s, %v)", init.Board, want, err)
 	}
 	if rel, err := filepath.Rel(filepath.Join(local, "agora"), init.State); err != nil || strings.HasPrefix(rel, "..") {
 		t.Fatalf("state %s, want it under %%LOCALAPPDATA%%", init.State)
 	}
+	// Without a board above the working directory, here an unknown one,
+	// commands fall back on it through %USERPROFILE%, not $HOME.
+	m.dir = ""
 	if m.post("--title", "hello from Windows") != "win-1" {
 		t.Fatal("posting with default locations")
 	}
+}
+
+// project makes a temporary home directory with a project in it, and a
+// machine whose working directory is the project, without AGORA_DIR.
+func project(t *testing.T) (m *machine, home, proj string) {
+	t.Helper()
+	m = newMachine(t, "")
+	delete(m.env, "AGORA_DIR")
+	home = m.env["HOME"]
+	proj = filepath.Join(home, "src", "proj")
+	if err := os.MkdirAll(filepath.Join(proj, "internal", "cli"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.dir = proj
+	return m, home, proj
+}
+
+func whoamiBoard(t *testing.T, m *machine) (root, node string) {
+	t.Helper()
+	var w map[string]string
+	m.json(&w, "whoami")
+	return w["board"], w["node"]
+}
+
+// ambient returns the board, resolved, that a search from dir finds above the
+// temporary directories. Tests expect it where they would otherwise expect
+// none. There normally is none, but on Windows, whose %TEMP% is beneath the
+// home directory, it is a real %USERPROFILE%\.agora.
+func ambient(t *testing.T, dir string) string {
+	t.Helper()
+	found, err := board.Find(dir, "")
+	if err != nil || found == "" {
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(found)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+func TestBoardInWorkingDirectory(t *testing.T) {
+	m, home, proj := project(t)
+	above := ambient(t, home)
+
+	// Without a board, whoami says so, and other commands fail and say how
+	// to create one.
+	if root, node := whoamiBoard(t, m); root != above || node != "" {
+		t.Fatalf("whoami without a board: board %q, node %q", root, node)
+	}
+	if above == "" {
+		if _, errOut, code := m.run("list"); code != 1 || !strings.Contains(errOut, "agora init") {
+			t.Fatalf("list without a board: status %d, %s", code, errOut)
+		}
+	}
+
+	// Like git init, init creates the board in the working directory, with a
+	// .gitignore that keeps it out of the project's repository.
+	var init struct{ Board, Node, State string }
+	m.json(&init, "init", "--node", "wsl")
+	want, err := filepath.EvalSymlinks(filepath.Join(proj, ".agora"))
+	if err != nil || init.Board != want {
+		t.Fatalf("init made %s, want %s (%v)", init.Board, want, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(want, ".gitignore")); err != nil || string(data) != "*\n" {
+		t.Fatalf(".gitignore: %q, %v", data, err)
+	}
+
+	// Commands find it from beneath the project and report it.
+	m.dir = filepath.Join(proj, "internal", "cli")
+	if root, node := whoamiBoard(t, m); root != want || node != "wsl" {
+		t.Fatalf("whoami beneath the project: board %q, node %q", root, node)
+	}
+	var r struct{ ID, Board string }
+	m.json(&r, "post", "--title", "found from a subdirectory")
+	if r.ID != "wsl-1" || r.Board != want {
+		t.Fatalf("post: %+v", r)
+	}
+	m.json(&r, "reply", "wsl-1", "-m", "and replied to")
+	if r.ID != "wsl-2" || r.Board != want {
+		t.Fatalf("reply: %+v", r)
+	}
+	// Text output keeps the id alone on standard output and names the board
+	// on standard error.
+	out, errOut, code := m.run("post", "--title", "in text")
+	if code != 0 || out != "wsl-3\n" || !strings.Contains(errOut, want) {
+		t.Fatalf("post in text: status %d, stdout %q, stderr %q", code, out, errOut)
+	}
+
+	// ~/.agora serves working directories without a board of their own, and
+	// the nearer board wins.
+	m.dir = home
+	m.ok("init", "--node", "wsl")
+	m.dir = testutil.TempDir(t)
+	homeBoard, err := filepath.EvalSymlinks(filepath.Join(home, ".agora"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if above != "" {
+		homeBoard = above
+	}
+	if root, _ := whoamiBoard(t, m); root != homeBoard {
+		t.Fatalf("outside the home directory: board %q, want %q", root, homeBoard)
+	}
+	m.dir = proj
+	if root, _ := whoamiBoard(t, m); root != want {
+		t.Fatalf("in the project: board %q, want %q", root, want)
+	}
+
+	// --board and AGORA_DIR come before the search.
+	other := filepath.Join(testutil.TempDir(t), "other")
+	m.json(&init, "init", "--node", "wsl", "--board", other)
+	m.env["AGORA_DIR"] = other
+	if root, _ := whoamiBoard(t, m); root != init.Board {
+		t.Fatalf("AGORA_DIR: board %q, want %q", root, init.Board)
+	}
+}
+
+func TestInitHintNamesTheBoard(t *testing.T) {
+	// The project's board has arrived from another machine, a, and this one,
+	// b, works beneath the project without having run init for it.
+	a, _, proj := project(t)
+	var init struct{ Board string }
+	a.json(&init, "init", "--node", "a")
+	b := newMachine(t, "")
+	delete(b.env, "AGORA_DIR")
+	b.dir = filepath.Join(proj, "internal", "cli")
+
+	// The hint names the board, so that following it from here doesn't
+	// create another board in the working directory.
+	hint := "agora init --node NAME --board " + init.Board
+	if _, errOut, code := b.run("post", "--title", "x"); code != 1 || !strings.Contains(errOut, hint) {
+		t.Fatalf("post without a node: status %d, %s", code, errOut)
+	}
+	if out := b.ok("whoami"); !strings.Contains(out, hint) {
+		t.Fatalf("whoami without a node:\n%s", out)
+	}
+	b.ok("init", "--node", "b", "--board", init.Board)
+	if _, err := os.Stat(filepath.Join(b.dir, ".agora")); !os.IsNotExist(err) {
+		t.Fatalf("init made a board in the working directory: %v", err)
+	}
+	var r struct{ ID, Board string }
+	b.json(&r, "post", "--title", "set up from a subdirectory")
+	if r.ID != "b-1" || r.Board != init.Board {
+		t.Fatalf("post after following the hint: %+v", r)
+	}
+}
+
+// linkWorktree lays out the files that git worktree add leaves for a linked
+// worktree at wt of the main worktree main.
+func linkWorktree(t *testing.T, main, wt string) {
+	t.Helper()
+	admin := filepath.Join(main, ".git", "worktrees", filepath.Base(wt))
+	for path, data := range map[string]string{
+		filepath.Join(admin, "commondir"): "../..\n",
+		filepath.Join(admin, "gitdir"):    filepath.ToSlash(filepath.Join(wt, ".git")) + "\n",
+		filepath.Join(wt, ".git"):         "gitdir: " + filepath.ToSlash(admin) + "\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBoardInLinkedWorktree(t *testing.T) {
+	m, _, proj := project(t)
+	wt := filepath.Join(testutil.TempDir(t), "fix")
+	linkWorktree(t, proj, wt)
+	if err := os.MkdirAll(filepath.Join(wt, "internal", "cli"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// init refuses to create a board inside a linked worktree, and points to
+	// the main worktree.
+	m.dir = wt
+	for _, args := range [][]string{{}, {"--board", filepath.Join(wt, "internal", ".agora")}} {
+		_, errOut, code := m.run(append([]string{"init", "--node", "wsl"}, args...)...)
+		if code != 1 || !strings.Contains(errOut, "linked worktree") || !strings.Contains(errOut, proj) {
+			t.Errorf("init %q in a linked worktree: status %d, %s", args, code, errOut)
+		}
+	}
+	if entries, err := filepath.Glob(filepath.Join(wt, "*", ".agora")); err != nil || len(entries) != 0 {
+		t.Fatalf("boards in the worktree: %v %v", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, ".agora")); !os.IsNotExist(err) {
+		t.Fatalf("a board in the worktree: %v", err)
+	}
+
+	// The worktree's commands use the main worktree's board.
+	m.dir = proj
+	var init struct{ Board string }
+	m.json(&init, "init", "--node", "wsl")
+	m.dir = filepath.Join(wt, "internal", "cli")
+	var r struct{ ID, Board string }
+	m.json(&r, "post", "--title", "from the worktree")
+	if r.ID != "wsl-1" || r.Board != init.Board {
+		t.Fatalf("post from the worktree: %+v, want the board %s", r, init.Board)
+	}
+
+	// A board named outside the worktree is fine.
+	m.ok("init", "--node", "wsl", "--board", filepath.Join(testutil.TempDir(t), ".agora"))
 }

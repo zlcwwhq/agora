@@ -21,7 +21,14 @@ import (
 )
 
 // ErrNotInitialized means that this machine hasn't run init for the board.
-var ErrNotInitialized = errors.New("this machine has no node name for the board: run agora init --node NAME")
+var ErrNotInitialized = errors.New("this machine has no node name for the board")
+
+// InitHint is the command that sets up this machine for the board. It names
+// the board, since init doesn't search for one: run elsewhere, such as in a
+// subdirectory, init without --board would create another board.
+func (b *Board) InitHint() string {
+	return "agora init --node NAME --board " + b.Root
+}
 
 // Board is one board as seen from this machine.
 type Board struct {
@@ -113,7 +120,7 @@ func (b *Board) IndexPath() string { return filepath.Join(b.State, "index.db") }
 func (b *Board) Node() (string, error) {
 	data, err := readFile(filepath.Join(b.State, "node"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", ErrNotInitialized
+		return "", fmt.Errorf("%w %s: run %s", ErrNotInitialized, b.Root, b.InitHint())
 	}
 	if err != nil {
 		return "", err
@@ -126,10 +133,10 @@ func (b *Board) Node() (string, error) {
 }
 
 // Init records node as this machine's node name and creates the board's
-// directories. It refuses a name whose directory exists, even empty, since
-// init creates it and another machine may be using the name, unless resume
-// says that the directory is this machine's own. Initializing again with the
-// same name succeeds.
+// directories and .gitignore. It refuses a name whose directory exists, even
+// empty, since init creates it and another machine may be using the name,
+// unless resume says that the directory is this machine's own. Initializing
+// again with the same name succeeds.
 func (b *Board) Init(node string, resume bool) error {
 	if !post.ValidNode(node) {
 		return fmt.Errorf("invalid node name %q: use 1 to 16 lowercase letters and digits, starting with a letter", node)
@@ -171,7 +178,31 @@ func (b *Board) Init(node string, resume bool) error {
 			return err
 		}
 	}
-	return nil
+	return b.writeGitignore(node)
+}
+
+// gitignore is the contents of the root's .gitignore, which makes Git ignore
+// a board inside a project. Every machine writes the same bytes, so that
+// synchronization reconciles them without a conflict.
+const gitignore = "*\n"
+
+// writeGitignore creates the root's .gitignore if it is missing, complete or
+// not at all, and never changes an existing one.
+func (b *Board) writeGitignore(node string) error {
+	path := filepath.Join(b.Root, ".gitignore")
+	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	tmp, err := b.writeScratch(node, []byte(gitignore))
+	if err != nil {
+		return err
+	}
+	err = os.Link(tmp, path)
+	_ = os.Remove(tmp)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	return err
 }
 
 // highest returns the highest post number in node's directory.
