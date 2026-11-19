@@ -36,6 +36,7 @@
     <h2>Reply to <span class="mono">{{.Target}}</span></h2>
     {{- with .Form.Reason}}<p class="refused" role="alert">{{.}}</p>{{end}}
     <input type="hidden" name="token" value="{{.Token}}">
+    <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
     <label>Body <span class="muted">Markdown; reference posts as #wsl-12</span><textarea name="body" rows="7" required>{{.Form.Body}}</textarea></label>
     <label>Labels <span class="muted">separated by spaces or commas</span><input type="text" name="tags" value="{{.Form.Tags}}"></label>
     <div class="compose-foot">

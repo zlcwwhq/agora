@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -133,14 +135,41 @@ type server struct {
 	// forms says whether pages offer forms, which must carry token.
 	forms bool
 	token string
-	mux   *http.ServeMux
-	pages map[string]*template.Template
+	// sent maps the last published forms, by sending, to where they led,
+	// oldest first in sendings, so that a form sent twice posts once.
+	sent     map[sending]string
+	sendings []sending
+	mux      *http.ServeMux
+	pages    map[string]*template.Template
 	// mu serializes pages, which bring the same index up to date, and posts.
 	mu sync.Mutex
 }
 
 // maxForm is the largest request body that a form may send.
 const maxForm = 1 << 20
+
+// maxSent is the number of published forms that serve remembers.
+const maxSent = 1000
+
+// sending identifies a form sent with a nonce: a digest of the address it was
+// sent to, its nonce, and what was typed.
+type sending [sha256.Size]byte
+
+// sendingOf returns the sending of a form sent to path, and false for one
+// without a nonce, which is never taken for a repeat.
+func sendingOf(path string, f form) (sending, bool) {
+	if f.Nonce == "" {
+		return sending{}, false
+	}
+	h := sha256.New()
+	for _, field := range []string{path, f.Nonce, f.Title, f.Tags, f.Body} {
+		_ = binary.Write(h, binary.BigEndian, uint64(len(field)))
+		h.Write([]byte(field))
+	}
+	var s sending
+	h.Sum(s[:0])
+	return s, true
+}
 
 // newToken returns a random value for forms to carry, which other web sites
 // can't know.
@@ -158,7 +187,7 @@ const security = "default-src 'none'; style-src 'self'; img-src 'self'; form-act
 	"frame-ancestors 'none'; base-uri 'none'"
 
 func newHandler(cfg Config, local bool) *server {
-	s := &server{cfg: cfg, local: local, forms: cfg.Post != nil && local, pages: parsePages()}
+	s := &server{cfg: cfg, local: local, forms: cfg.Post != nil && local, pages: parsePages(), sent: map[sending]string{}}
 	static, err := fs.Sub(files, "static")
 	if err != nil {
 		panic(err)
@@ -237,7 +266,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 			"load the page again and post from it.")
 		return
 	}
-	f := form{Title: r.PostForm.Get("title"), Tags: r.PostForm.Get("tags"), Body: r.PostForm.Get("body")}
+	f := form{Title: r.PostForm.Get("title"), Tags: r.PostForm.Get("tags"), Body: r.PostForm.Get("body"), Nonce: r.PostForm.Get("nonce")}
 	d := Draft{Title: f.Title, Body: f.Body, Tags: splitTags(f.Tags)}
 	raw := r.PathValue("id")
 	if raw != "" {
@@ -251,6 +280,12 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A form sent again, as by a double click, leads where it led before.
+	sent, repeatable := sendingOf(r.URL.Path, f)
+	if to, ok := s.sent[sent]; ok && repeatable {
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return
+	}
 	id, err := s.cfg.Post(d)
 	var refused *FormError
 	switch {
@@ -263,7 +298,21 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Logf("serve: posting: %v", err)
 		s.fail(w, http.StatusInternalServerError, "Can't post: "+err.Error())
 	default:
+		if repeatable {
+			s.remember(sent, threadURL(id))
+		}
 		http.Redirect(w, r, threadURL(id), http.StatusSeeOther)
+	}
+}
+
+// remember records where a published form led, forgetting the oldest beyond
+// maxSent.
+func (s *server) remember(sent sending, to string) {
+	s.sent[sent] = to
+	s.sendings = append(s.sendings, sent)
+	if len(s.sendings) > maxSent {
+		delete(s.sent, s.sendings[0])
+		s.sendings = s.sendings[1:]
 	}
 }
 

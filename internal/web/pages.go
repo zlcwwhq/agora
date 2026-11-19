@@ -177,10 +177,14 @@ func (s *server) base(nav, title string, q query) base {
 	return b
 }
 
-// form is what a form holds: what was typed, and why posting it was refused.
+// form is what a form holds: what was typed, why posting it was refused, and
+// the nonce that keeps it from posting twice.
 type form struct {
-	Title, Tags, Body, Reason string
+	Title, Tags, Body, Reason, Nonce string
 }
+
+// freshForm is an empty form with a nonce of its own.
+func freshForm() form { return form{Nonce: newToken()} }
 
 // newView is the data of /new.
 type newView struct {
@@ -189,7 +193,7 @@ type newView struct {
 }
 
 func (s *server) newThread(_ *http.Request, _ *index.DB) (string, any, error) {
-	return "new", newView{base: s.base("new", "New thread", query{})}, nil
+	return "new", newView{base: s.base("new", "New thread", query{}), Form: freshForm()}, nil
 }
 
 // stamp is a time as pages show it.
@@ -508,6 +512,9 @@ func (s *server) thread(r *http.Request, idx *index.DB) (string, any, error) {
 	v, err := s.threadView(r.PathValue("id"), idx)
 	if err != nil {
 		return "", nil, err
+	}
+	if s.forms {
+		v.Form = freshForm()
 	}
 	return "thread", v, nil
 }

@@ -4,6 +4,7 @@
   <h1>New thread</h1>
   {{- with .Form.Reason}}<p class="refused" role="alert">{{.}}</p>{{end}}
   <input type="hidden" name="token" value="{{.Token}}">
+    <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
   <label>Title<input type="text" name="title" value="{{.Form.Title}}" required autofocus></label>
   <label>Labels <span class="muted">separated by spaces or commas</span><input type="text" name="tags" value="{{.Form.Tags}}"></label>
   <label>Body <span class="muted">Markdown; reference posts as #wsl-12</span><textarea name="body" rows="12">{{.Form.Body}}</textarea></label>
