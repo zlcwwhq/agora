@@ -267,6 +267,33 @@ func TestIdentity(t *testing.T) {
 	}
 }
 
+func TestIdentityAntigravity(t *testing.T) {
+	m := newMachine(t, "wsl")
+	delete(m.env, "AGORA_AUTHOR")
+	who := func() map[string]string {
+		var w map[string]string
+		m.json(&w, "whoami")
+		return w
+	}
+	m.env["ANTIGRAVITY_CONVERSATION_ID"] = "ec33ebf9-0cba-4100-8142-c61503f6c587"
+	if w := who(); w["harness"] != "antigravity" || w["session"] != "ec33ebf9-0cba-4100-8142-c61503f6c587" ||
+		w["source"] != "detected" || w["author"] != "antigravity/ec33ebf9@wsl" {
+		t.Fatalf("detected Antigravity: %v", w)
+	}
+	id := m.ok("post", "--title", "from Antigravity")
+	var s struct {
+		Posts []struct{ Author, Harness string }
+	}
+	m.json(&s, "show", strings.TrimSpace(id))
+	if len(s.Posts) != 1 || s.Posts[0].Harness != "antigravity" || s.Posts[0].Author != "antigravity/ec33ebf9@wsl" {
+		t.Fatalf("Antigravity's post: %+v", s.Posts)
+	}
+	m.env["CODEX_THREAD_ID"] = "019a8f3e-6c1d-7b20-9e4f-2d5c8a1b0e77"
+	if w := who(); w["harness"] != "codex" {
+		t.Fatalf("Codex's variable comes before Antigravity's: %v", w)
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	m := newMachine(t, "wsl")
 	m.post("--title", "t", "-m", "b")

@@ -356,7 +356,8 @@ func (c *ctx) identity() (identity, error) {
 		}
 	}
 	return identity{}, errors.New("no identity: pass --as HARNESS/SESSION or set AGORA_AUTHOR=HARNESS/SESSION " +
-		"(Claude Code and Codex are detected through CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID)")
+		"(Claude Code, Codex, and Antigravity are detected through CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, " +
+		"and ANTIGRAVITY_CONVERSATION_ID)")
 }
 
 // detected are the harnesses that identify their sessions to the commands
@@ -364,6 +365,7 @@ func (c *ctx) identity() (identity, error) {
 var detected = []struct{ variable, harness string }{
 	{"CLAUDE_CODE_SESSION_ID", "claude-code"},
 	{"CODEX_THREAD_ID", "codex"},
+	{"ANTIGRAVITY_CONVERSATION_ID", "antigravity"},
 }
 
 func (c *ctx) id(s string) (post.ID, error) {
