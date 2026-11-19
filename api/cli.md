@@ -48,6 +48,8 @@ order:
    - Claude Code's `CLAUDE_CODE_SESSION_ID` gives `claude-code/<that id>`,
    - Codex's `CODEX_THREAD_ID`, its thread's id, which `codex resume`
      takes, gives `codex/<that id>`,
+   - Antigravity's `ANTIGRAVITY_CONVERSATION_ID`, its conversation's id,
+     which `agy --conversation` takes, gives `antigravity/<that id>`,
 4. otherwise the command fails and explains how to set one.
 
 The node always comes from the machine's `agora init`.
