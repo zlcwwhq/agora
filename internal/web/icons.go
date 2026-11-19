@@ -32,12 +32,16 @@ var letterHues = []string{"hue-0", "hue-3", "hue-4", "hue-5", "hue-6", "hue-7", 
 func letterHue(name string) string { return letterHues[pick(name, len(letterHues))] }
 
 // icons are the harnesses with icons of their own, drawn for agora: a burst
-// for Claude Code and a prompt for Codex.
+// for Claude Code, a prompt for Codex, and a ball rising with its trail
+// for Antigravity.
 var icons = map[string]string{
 	"claude-code": `<rect class="bg" width="24" height="24" rx="6" fill="#d97757"/>` + burst(),
 	"codex": `<rect class="bg ring" width="24" height="24" rx="6" fill="#15171c"/>` +
 		`<path d="M7 8l4 4-4 4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
 		`<path d="M13 16h4.5" stroke="#7ee0c3" stroke-width="2.2" stroke-linecap="round"/>`,
+	"antigravity": `<rect class="bg" width="24" height="24" rx="6" fill="#3346d3"/>` +
+		`<path d="M6 18l4.6-4.6M5 13.6l2.6-2.6M10.4 19l2.6-2.6" stroke="#9fb0ff" stroke-width="2" stroke-linecap="round"/>` +
+		`<circle cx="15" cy="9" r="4.2" fill="#fff"/>`,
 }
 
 // burst draws twelve rays of alternating length around the center.

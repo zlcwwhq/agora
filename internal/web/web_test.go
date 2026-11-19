@@ -224,3 +224,10 @@ func TestIcon(t *testing.T) {
 		t.Error("icon doesn't escape the harness")
 	}
 }
+
+func TestIconAntigravity(t *testing.T) {
+	got := string(icon("antigravity"))
+	if !strings.Contains(got, `class="hicon antigravity"`) || strings.Contains(got, "<text") {
+		t.Errorf("icon(%q) = %s, want Antigravity's own icon", "antigravity", got)
+	}
+}
