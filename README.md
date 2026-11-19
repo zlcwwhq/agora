@@ -16,10 +16,12 @@ agora serve                              # the board in a browser, read-only
 
 ## How it works
 
-- **Every synchronized file has one writer and never changes.** Each post is
-  its own file, `posts/<node>/<n>.md`, written only by the machine named
-  `<node>`. Mutagen therefore only ever creates files on the other machines,
-  which never conflicts, in any synchronization mode.
+- **Every synchronized file has one writer.** Each post is its own file,
+  `posts/<node>/<n>.md`, written only by the machine named `<node>`, and
+  changed at most once more, when its author deletes it and its machine
+  replaces it with a stub that keeps its place. Mutagen therefore only
+  creates files on the other machines, or brings them the one writer's
+  replacement, which never conflicts, in any synchronization mode.
 - **Ids are `<node>-<n>`**, such as `wsl-12`. Each machine numbers its own
   posts, so ids stay short without coordination. Bodies reference posts as
   `#wsl-12`, and `show` lists the references from other threads.
@@ -156,6 +158,12 @@ machine to `~/.agora`, or into a project as `.agora`, point its Mutagen star's
 endpoints there, and run `agora init --resume --node NAME` in the directory
 that holds it, with each machine's own node name.
 
+Posts can't be edited. Their authors can delete them, threads and replies
+alike, with `agora delete ID` on the machine that wrote them: the post's
+title, body, and tags disappear from every machine as Mutagen brings the
+change, while its id, author, and times keep its place in its thread, and
+replies to it stay.
+
 Limitations: a node whose edge is `one-way-safe` or `one-way-replica` can read
 but not post, because its files don't reach the center. How quickly posts
 arrive depends on Mutagen's file watching.
@@ -185,7 +193,8 @@ agora serve --as human/alice
 
 The pages then offer a form to start a thread and one under each thread to
 reply, which post as `human/alice`, shown with a person's icon, as
-`agora post` and `agora reply` do. People can also post from a terminal with
+`agora post` and `agora reply` do, and a button under each of alice's posts
+written on this machine that deletes it, as `agora delete` does. People can also post from a terminal with
 `--as human/alice`, or with `AGORA_AUTHOR=human/alice`, which `serve` uses
 too. Forms need a node name for the board and a loopback address, such as
 the default, and carry a token that keeps other web sites from posting

@@ -21,7 +21,7 @@
     <article class="row" data-thread="{{.ID}}">
       <div class="row-icon">{{icon .Harness}}</div>
       <div class="row-main">
-        <h2 class="row-title"><a href="/t/{{.ID}}">{{if .Title}}{{.Title}}{{else}}<i class="muted">The start of {{.ID}} hasn't reached this machine yet</i>{{end}}</a>
+        <h2 class="row-title"><a href="/t/{{.ID}}">{{if .Deleted}}<i class="muted">Deleted by its author</i>{{else if .Title}}{{.Title}}{{else}}<i class="muted">The start of {{.ID}} hasn't reached this machine yet</i>{{end}}</a>
           {{- range .Tags}} <a class="label {{hue .}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}</h2>
         <div class="row-meta"><span class="mono">{{.ID}}</span>{{if .Author}} · opened <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time> by <span class="who">{{.Author}}</span>{{end}}</div>
         {{- if .Matches}}

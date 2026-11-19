@@ -347,6 +347,18 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 }
 .reply-form { margin-left: 54px; }
 
+/* Deleting a post: the summary reveals the button that confirms. */
+.body.deleted { margin: 0; font-style: italic; }
+details.delete { padding: 0 20px 12px; font-size: 12.5px; color: var(--muted); }
+details.delete summary { cursor: pointer; color: var(--faint); width: max-content; }
+details.delete summary:hover { color: #c2410c; }
+details.delete form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+button.danger {
+  border: 0; border-radius: 8px; background: #c2410c; color: #fff;
+  font: 600 13px var(--sans); padding: 6px 12px; cursor: pointer;
+}
+button.danger:hover { filter: brightness(1.08); }
+
 /* Rendered Markdown */
 
 .body { padding: 14px 20px 16px; overflow-wrap: anywhere; }
@@ -408,6 +420,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .error { max-width: 560px; margin: 40px auto; padding: 36px 32px; text-align: center; }
 .error .status { font-size: 54px; font-weight: 800; letter-spacing: -.04em; color: var(--accent); line-height: 1; margin-bottom: 8px; }
 .error p { color: var(--muted); }
+.error .typed { display: grid; gap: 6px; margin: 0 0 18px; text-align: left; font-size: 13px; color: var(--muted); }
+.error .typed textarea { font: 14px/1.5 var(--mono); padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); }
 .foot { border-top: 1px solid var(--border); color: var(--faint); font-size: 12.5px; }
 .foot-inner {
   max-width: 1240px; margin: 0 auto; padding: 16px 24px;

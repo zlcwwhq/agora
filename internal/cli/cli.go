@@ -108,6 +108,7 @@ var commands = []command{
 			fs.StringVar(&o.message, "m", "", "the `body`")
 			fs.StringVar(&o.file, "f", "", "read the body from `FILE`; - is standard input")
 		}},
+	{name: "delete", args: "ID", summary: "delete a post of yours that this machine wrote", run: runDelete, positional: 1},
 	{name: "show", args: "ID", summary: "show the thread that contains a post", run: runShow, positional: 1},
 	{name: "list", args: "[-t TAG]... [--author AUTHOR] [-n N]", summary: "list threads by recent activity", run: runList,
 		flags: func(fs *flag.FlagSet, o *opts) {
@@ -686,9 +687,80 @@ func runReply(c *ctx, args []string) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("unknown post %s: it may not have reached this machine yet", target)
+		return errUnknown(target)
+	}
+	if e.Deleted != "" {
+		return errDeletedTarget(target)
 	}
 	return c.publish(post.Post{Thread: e.ThreadID(), ReplyTo: e.ID, Tags: tags, Body: body})
+}
+
+// errDeletedTarget is why reply refuses to reply to target, a deleted post.
+func errDeletedTarget(target post.ID) error {
+	return fmt.Errorf("can't reply to %s, which is deleted: reply to another post in its thread", target)
+}
+
+func runDelete(c *ctx, args []string) error {
+	target, err := c.id(args[0])
+	if err != nil {
+		return err
+	}
+	id, err := c.identity()
+	if err != nil {
+		return err
+	}
+	b, p, already, err := c.deleteAs(id, target)
+	if err != nil {
+		return err
+	}
+	if c.o.json {
+		return c.printJSON(map[string]string{"id": p.ID.String(), "deleted": p.Deleted, "board": b.Root})
+	}
+	c.printf("%s\n", p.ID)
+	if already {
+		fmt.Fprintf(c.env.Stderr, "agora: %s was already deleted, %s\n", p.ID, when(p.Deleted))
+	} else {
+		fmt.Fprintf(c.env.Stderr, "agora: deleted %s from %s\n", p.ID, b.Root)
+	}
+	return nil
+}
+
+// deleteAs deletes target as id, as delete does, and returns the deleted
+// post and whether it was deleted already.
+func (c *ctx) deleteAs(id identity, target post.ID) (*board.Board, post.Post, bool, error) {
+	idx, err := c.index()
+	if err != nil {
+		return nil, post.Post{}, false, err
+	}
+	if _, ok, err := idx.Get(target); err != nil || !ok {
+		if err == nil {
+			err = errUnknown(target)
+		}
+		return nil, post.Post{}, false, err
+	}
+	b, err := c.board()
+	if err != nil {
+		return nil, post.Post{}, false, err
+	}
+	p, already, err := b.Delete(target, id.harness, id.session, c.env.Now().Format(time.RFC3339))
+	if err != nil {
+		return nil, post.Post{}, false, err
+	}
+	// Bring the index up to date now, so that it drops the post's text
+	// before the next command. Failing to only delays that.
+	c.close()
+	c.idx = nil
+	if _, err := c.index(); err != nil {
+		fmt.Fprintf(c.env.Stderr, "agora: warning: deleted %s, but can't update the index: %v\n", p.ID, err)
+	}
+	return b, p, already, nil
+}
+
+// errUnknown is the error for a post that isn't in the index.
+type errUnknown post.ID
+
+func (e errUnknown) Error() string {
+	return fmt.Sprintf("unknown post %s: it may not have reached this machine yet", post.ID(e))
 }
 
 type postJSON struct {
@@ -703,6 +775,7 @@ type postJSON struct {
 	Tags    []string `json:"tags"`
 	Body    string   `json:"body"`
 	Refs    []string `json:"refs"`
+	Deleted string   `json:"deleted"`
 }
 
 func toPostJSON(e index.Entry) postJSON {
@@ -718,7 +791,7 @@ func toPostJSON(e index.Entry) postJSON {
 		ID: e.ID.String(), Thread: e.ThreadID().String(), ReplyTo: e.ReplyTo.String(),
 		Author:  post.Author(e.Harness, e.Session, e.ID.Node),
 		Harness: e.Harness, Session: e.Session, Created: e.Created,
-		Title: e.Title, Tags: tags, Body: e.Body, Refs: refs,
+		Title: e.Title, Tags: tags, Body: e.Body, Refs: refs, Deleted: e.Deleted,
 	}
 }
 
@@ -730,6 +803,7 @@ type threadJSON struct {
 	LastActivity string   `json:"last_activity"`
 	Replies      int      `json:"replies"`
 	Tags         []string `json:"tags"`
+	Deleted      string   `json:"deleted"`
 }
 
 func toThreadJSON(t index.Thread) threadJSON {
@@ -739,7 +813,7 @@ func toThreadJSON(t index.Thread) threadJSON {
 	}
 	return threadJSON{
 		ID: t.ID.String(), Title: t.Title, Author: post.Author(t.Harness, t.Session, t.ID.Node),
-		Created: t.Created, LastActivity: t.LastActivity, Replies: t.Replies, Tags: tags,
+		Created: t.Created, LastActivity: t.LastActivity, Replies: t.Replies, Tags: tags, Deleted: t.Deleted,
 	}
 }
 
@@ -761,7 +835,10 @@ func plural(n int, one, many string) string {
 
 func (c *ctx) printThreadLine(t index.Thread) {
 	title := t.Title
-	if title == "" {
+	switch {
+	case t.Deleted != "":
+		title = post.DeletedTitle
+	case title == "":
 		title = "(root not here yet)"
 	}
 	c.printf("%-10s %s\n", t.ID, title)
@@ -769,7 +846,9 @@ func (c *ctx) printThreadLine(t index.Thread) {
 	if a := post.Author(t.Harness, t.Session, t.ID.Node); a != "" {
 		meta = append(meta, a)
 	}
-	meta = append(meta, "active "+when(t.LastActivity))
+	if t.LastActivity != "" {
+		meta = append(meta, "active "+when(t.LastActivity))
+	}
 	if len(t.Tags) > 0 {
 		meta = append(meta, "#"+strings.Join(t.Tags, " #"))
 	}
@@ -787,6 +866,9 @@ func (c *ctx) printPost(e index.Entry, focus bool, context string) {
 	}
 	if len(e.Tags) > 0 {
 		parts = append(parts, "#"+strings.Join(e.Tags, " #"))
+	}
+	if e.Deleted != "" {
+		parts = append(parts, "deleted "+when(e.Deleted))
 	}
 	if context != "" {
 		parts = append(parts, context)
@@ -823,7 +905,7 @@ func runShow(c *ctx, args []string) error {
 		return err
 	}
 	if len(posts) == 0 {
-		return fmt.Errorf("unknown post %s: it may not have reached this machine yet", target)
+		return errUnknown(target)
 	}
 	info, err := idx.ThreadInfo(root)
 	if err != nil {
@@ -873,7 +955,10 @@ func runShow(c *ctx, args []string) error {
 		c.printf("Referenced by:\n")
 		for _, b := range backlinks {
 			title := b.Title
-			if title == "" {
+			switch {
+			case b.RootDeleted:
+				title = post.DeletedTitle
+			case title == "":
 				title = "(root not here yet)"
 			}
 			c.printf("  %s → %s   in %s %s\n", b.ID, b.To, b.Thread, title)
@@ -1089,7 +1174,8 @@ func runUnread(c *ctx, _ []string) error {
 		if err != nil {
 			return err
 		}
-		if ok {
+		// Deleted posts are left out, but marked seen below.
+		if ok && e.Deleted == "" {
 			entries = append(entries, e)
 		}
 	}
@@ -1178,6 +1264,11 @@ func runServe(c *ctx, _ []string) error {
 	if err != nil {
 		return err
 	}
+	var remove func(post.ID) error
+	var mine func(post.Post) bool
+	if publish != nil {
+		remove, mine = c.personDelete(b, node)
+	}
 	url := "http://" + displayAddr(ln.Addr()) + "/"
 	if c.o.json {
 		if err := c.printJSON(map[string]string{"url": url, "board": b.Root, "author": author}); err != nil {
@@ -1208,7 +1299,7 @@ func runServe(c *ctx, _ []string) error {
 		Logf: func(format string, args ...any) {
 			fmt.Fprintf(c.env.Stderr, "agora: "+format+"\n", args...)
 		},
-		Post: publish, Author: author,
+		Post: publish, Author: author, Delete: remove, Mine: mine,
 	})
 }
 
@@ -1244,6 +1335,34 @@ func (c *ctx) forms(b *board.Board, node string, addr net.Addr) (string, func(we
 	return post.Author(id.harness, id.session, node), func(d web.Draft) (post.ID, error) { return c.formPost(b, id, d) }, nil
 }
 
+// personDelete returns the functions with which the forms that forms offers
+// delete the person's posts: one that deletes as delete does, and one that
+// says which posts it would delete, the person's that this machine wrote.
+func (c *ctx) personDelete(b *board.Board, node string) (func(post.ID) error, func(post.Post) bool) {
+	// forms has checked the identity.
+	id, _ := c.identity()
+	remove := func(target post.ID) error { return c.formDelete(b, id, target) }
+	mine := func(p post.Post) bool {
+		return p.ID.Node == node && p.Harness == id.harness && p.Session == id.session
+	}
+	return remove, mine
+}
+
+// formDelete deletes target as id, as delete does.
+func (c *ctx) formDelete(b *board.Board, id identity, target post.ID) error {
+	dc := &ctx{env: c.env, o: c.o, b: b}
+	defer dc.close()
+	_, _, _, err := dc.deleteAs(id, target)
+	var unknown errUnknown
+	switch {
+	case errors.As(err, &unknown):
+		return web.Missing("There is no post " + target.String() + " here. It may not have reached this machine yet.")
+	case errors.Is(err, board.ErrNotYours):
+		return web.Forbidden(sentence(err.Error()))
+	}
+	return err
+}
+
 // formPost publishes what a form sent as id, with the rules of post and reply.
 func (c *ctx) formPost(b *board.Board, id identity, d web.Draft) (post.ID, error) {
 	pc := &ctx{env: c.env, o: c.o, b: b}
@@ -1277,6 +1396,9 @@ func (c *ctx) formPost(b *board.Board, id identity, d web.Draft) (post.ID, error
 		}
 		if !ok {
 			return post.ID{}, web.Missing("There is no post " + d.ReplyTo.String() + " here. It may not have reached this machine yet.")
+		}
+		if e.Deleted != "" {
+			return refuse(errDeletedTarget(e.ID))
 		}
 		p.Thread, p.ReplyTo = e.ThreadID(), e.ID
 	}

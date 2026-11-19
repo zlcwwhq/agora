@@ -50,6 +50,12 @@ type Config struct {
 	Post func(Draft) (post.ID, error)
 	// Author is whom Post posts as, as post.Author shows authors.
 	Author string
+	// Delete deletes a post as Author, as agora delete does; a *FormError
+	// says why it refuses to.
+	Delete func(post.ID) error
+	// Mine reports whether Delete would delete a post: one of Author's
+	// that this machine wrote.
+	Mine func(post.Post) bool
 }
 
 // Draft is what a form sends: a new thread if ReplyTo is zero, else a reply
@@ -74,8 +80,13 @@ func (e *FormError) Error() string { return e.Reason }
 // form shows again.
 func Refused(reason string) error { return &FormError{Status: http.StatusBadRequest, Reason: reason} }
 
-// Missing is a reply to a post that isn't here, for reason.
+// Missing is a reply to a post that isn't here, or the deletion of one, for
+// reason.
 func Missing(reason string) error { return &FormError{Status: http.StatusNotFound, Reason: reason} }
+
+// Forbidden is the deletion of a post that isn't the person's to delete, for
+// reason.
+func Forbidden(reason string) error { return &FormError{Status: http.StatusForbidden, Reason: reason} }
 
 // Serve serves the interface on ln until ctx is done, then shuts down and
 // returns nil.
@@ -202,6 +213,7 @@ func newHandler(cfg Config, local bool) *server {
 		s.mux.HandleFunc("GET /new", s.page(s.newThread))
 		s.mux.HandleFunc("POST /new", s.submit)
 		s.mux.HandleFunc("POST /t/{id}", s.submit)
+		s.mux.HandleFunc("POST /t/{id}/delete", s.remove)
 	}
 	s.mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/") {
@@ -228,7 +240,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusForbidden, "This board is served to this machine only: open it at localhost or 127.0.0.1.")
 		return
 	}
-	form := s.forms && formPath(r.URL.Path)
+	if s.forms && deletePath(r.URL.Path) && r.Method != http.MethodPost {
+		h.Set("Allow", "POST")
+		s.fail(w, http.StatusMethodNotAllowed, "This address only deletes a post, with its form's POST.")
+		return
+	}
+	form := s.forms && (formPath(r.URL.Path) || deletePath(r.URL.Path))
 	if r.Method != http.MethodGet && r.Method != http.MethodHead && (r.Method != http.MethodPost || !form) {
 		if form {
 			h.Set("Allow", "GET, HEAD, POST")
@@ -246,6 +263,47 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func formPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, "/t/")
 	return path == "/new" || ok && rest != "" && !strings.Contains(rest, "/")
+}
+
+// deletePath reports whether a path is the address that deletes a post,
+// /t/ID/delete.
+func deletePath(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/t/")
+	id, ok2 := strings.CutSuffix(rest, "/delete")
+	return ok && ok2 && id != "" && !strings.Contains(id, "/")
+}
+
+// remove deletes the post that a form names, and leads back to its place.
+func (s *server) remove(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxForm)
+	if err := r.ParseForm(); err != nil {
+		s.fail(w, http.StatusBadRequest, "Can't read the form: "+err.Error())
+		return
+	}
+	if !s.genuine(r) {
+		s.fail(w, http.StatusForbidden, "This form didn't come from these pages, or agora serve has restarted since it was loaded: "+
+			"load the page again and delete from it.")
+		return
+	}
+	raw := r.PathValue("id")
+	id, err := post.ParseID(strings.TrimPrefix(raw, "#"))
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, fmt.Sprintf("%q isn't a post id, such as wsl-12.", raw))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err = s.cfg.Delete(id)
+	var refused *FormError
+	switch {
+	case errors.As(err, &refused):
+		s.fail(w, refused.Status, refused.Reason)
+	case err != nil:
+		s.cfg.Logf("serve: deleting: %v", err)
+		s.fail(w, http.StatusInternalServerError, "Can't delete: "+err.Error())
+	default:
+		http.Redirect(w, r, threadURL(id), http.StatusSeeOther)
+	}
 }
 
 // submit publishes what a form sent, and leads to the new post, or shows the
@@ -348,6 +406,13 @@ func (s *server) refill(w http.ResponseWriter, raw string, f form) {
 	case err != nil:
 		s.cfg.Logf("serve: %v", err)
 		s.fail(w, http.StatusInternalServerError, "Can't show this page: "+err.Error())
+	case v.Target == "":
+		// The post replied to can't be replied to, as when it is deleted,
+		// so the page has no form: show the reason and what was typed.
+		s.render(w, http.StatusBadRequest, "error", errorView{
+			base:   s.base("", http.StatusText(http.StatusBadRequest), query{}),
+			Status: http.StatusBadRequest, Text: f.Reason, Typed: f.Body,
+		})
 	default:
 		v.Form = f
 		s.render(w, http.StatusBadRequest, "thread", v)
@@ -405,6 +470,8 @@ type errorView struct {
 	base
 	Status int
 	Text   string
+	// Typed is what a refused form held, shown so that it isn't lost.
+	Typed string
 }
 
 func (s *server) fail(w http.ResponseWriter, status int, msg string) {

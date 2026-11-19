@@ -240,10 +240,12 @@ func relative(t, now time.Time) string {
 // threadRow is a thread in a listing.
 type threadRow struct {
 	ID, Title, Harness, Author string
-	Created, Active            stamp
-	Replies                    int
-	Tags                       []string
-	Matches                    []matchRow
+	// Deleted says whether the thread's root is deleted.
+	Deleted         bool
+	Created, Active stamp
+	Replies         int
+	Tags            []string
+	Matches         []matchRow
 }
 
 // matchRow is a post that matched a search.
@@ -263,7 +265,7 @@ func (s *server) threadRow(t index.Thread) threadRow {
 		ID: t.ID.String(), Title: t.Title, Harness: t.Harness,
 		Author:  post.Author(t.Harness, t.Session, t.ID.Node),
 		Created: s.stamp(t.Created), Active: s.stamp(t.LastActivity),
-		Replies: t.Replies, Tags: t.Tags,
+		Replies: t.Replies, Tags: t.Tags, Deleted: t.Deleted != "",
 	}
 }
 
@@ -481,6 +483,11 @@ type postView struct {
 	Tags        []string
 	Body        template.HTML
 	Root, Focus bool
+	// Deleted is when the post was deleted, if it was; a deleted post has no
+	// tags or body.
+	Deleted *stamp
+	// Mine says whether the person can delete the post here.
+	Mine bool
 }
 
 // participant is an author in a thread.
@@ -503,9 +510,13 @@ type threadView struct {
 	Backlinks    []backlinkView
 	Unresolved   []string
 	// Target is the post that the address names, which the form replies to,
-	// or empty if it hasn't arrived.
+	// or empty if it hasn't arrived or is deleted.
 	Target string
 	Form   form
+	// Hint is the post that the command line's hint replies to: the root,
+	// or the latest post that isn't deleted if the root is, or none if
+	// every post is.
+	Hint string
 }
 
 func (s *server) thread(r *http.Request, idx *index.DB) (string, any, error) {
@@ -555,13 +566,16 @@ func (s *server) threadView(raw string, idx *index.DB) (threadView, error) {
 	}
 
 	title := info.Title
-	if title == "" {
+	switch {
+	case info.Deleted != "":
+		title = post.DeletedTitle
+	case title == "":
 		title = root.String()
 	}
-	v := threadView{base: s.base("", title, query{}), Thread: s.threadRow(info)}
-	if ok {
-		// A post that hasn't arrived, such as a thread's root, can't be
-		// replied to here.
+	v := threadView{base: s.base("", title, query{}), Thread: s.threadRow(info), Hint: hint(root, posts)}
+	if ok && e.Deleted == "" {
+		// A post that hasn't arrived, such as a thread's root, or that is
+		// deleted, can't be replied to.
 		v.Target = target.String()
 	}
 	missing := map[post.ID]bool{}
@@ -586,6 +600,12 @@ func (s *server) threadView(raw string, idx *index.DB) (threadView, error) {
 		if !p.ReplyTo.IsZero() && p.ReplyTo != p.Thread {
 			pv.ReplyTo = p.ReplyTo.String()
 		}
+		if p.Deleted != "" {
+			deleted := s.stamp(p.Deleted)
+			pv.Deleted = &deleted
+		} else {
+			pv.Mine = s.forms && s.cfg.Mine != nil && s.cfg.Mine(p.Post)
+		}
 		v.Posts = append(v.Posts, pv)
 		c := counts[pv.Author]
 		if c == nil {
@@ -599,10 +619,36 @@ func (s *server) threadView(raw string, idx *index.DB) (threadView, error) {
 		v.Participants = append(v.Participants, *counts[a])
 	}
 	for _, b := range backlinks {
-		v.Backlinks = append(v.Backlinks, backlinkView{b.ID.String(), b.To.String(), b.Thread.String(), b.Title})
+		v.Backlinks = append(v.Backlinks, backlinkView{b.ID.String(), b.To.String(), b.Thread.String(), backlinkTitle(b)})
 	}
 	return v, nil
 }
 
 // threadURL is the address of a post in its thread.
 func threadURL(id post.ID) string { return "/t/" + id.String() + "#" + id.String() }
+
+// backlinkTitle is the title that a backlink shows for its post's thread.
+func backlinkTitle(b index.Backlink) string {
+	if b.RootDeleted {
+		return post.DeletedTitle
+	}
+	return b.Title
+}
+
+// hint is the post that a thread's command-line hint replies to: its root,
+// unless the root is deleted, then its latest post that isn't, or none.
+func hint(root post.ID, posts []index.Entry) string {
+	rootDeleted, latest := false, ""
+	for _, p := range posts { // in display order
+		switch {
+		case p.Deleted == "":
+			latest = p.ID.String()
+		case p.ID == root:
+			rootDeleted = true
+		}
+	}
+	if rootDeleted {
+		return latest
+	}
+	return root.String()
+}

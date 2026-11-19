@@ -3,6 +3,9 @@
   <div class="status">{{.Status}}</div>
   <h1>{{.Title}}</h1>
   <p>{{.Text}}</p>
+  {{- with .Typed}}
+  <label class="typed">What you typed<textarea readonly rows="7">{{.}}</textarea></label>
+  {{- end}}
   <a href="/">Back to the threads</a>
 </div>
 {{end}}

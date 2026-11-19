@@ -27,6 +27,25 @@ type Post struct {
 	ReplyTo ID
 	Tags    []string
 	Body    string
+	// Deleted is when the post's author deleted it, as written, in RFC 3339
+	// with an offset, and empty if they haven't. A deleted post has no
+	// title, tags, or body.
+	Deleted string
+}
+
+// DeletedTitle is the title of a deleted root's stub, which readers that
+// don't know deleted posts show.
+const DeletedTitle = "(deleted)"
+
+// Stub returns the stub that replaces p's file when it is deleted at the time
+// deleted: what places p, without its text.
+func (p Post) Stub(deleted string) Post {
+	s := Post{ID: p.ID, Harness: p.Harness, Session: p.Session, Created: p.Created,
+		Thread: p.Thread, ReplyTo: p.ReplyTo, Deleted: deleted}
+	if s.IsRoot() {
+		s.Title = DeletedTitle
+	}
+	return s
 }
 
 // IsRoot reports whether p starts a thread.
@@ -59,6 +78,9 @@ func (p Post) Validate() error {
 	}
 	if _, err := p.CreatedTime(); err != nil {
 		return fmt.Errorf("invalid created time %q: want RFC 3339", p.Created)
+	}
+	if _, err := time.Parse(time.RFC3339, p.Deleted); p.Deleted != "" && err != nil {
+		return fmt.Errorf("invalid deletion time %q: want RFC 3339", p.Deleted)
 	}
 	if p.Thread.IsZero() != p.ReplyTo.IsZero() {
 		return errors.New("a reply needs both thread and reply-to, a root neither")
@@ -121,6 +143,9 @@ func Render(p Post) ([]byte, error) {
 	}
 	if len(p.Tags) > 0 {
 		line("tags", p.Tags)
+	}
+	if p.Deleted != "" {
+		line("deleted", p.Deleted)
 	}
 	b.WriteString("---\n")
 	b.WriteString(p.Body)
@@ -188,6 +213,7 @@ func Parse(data []byte) (Post, error) {
 		{"thread", &thread, false},
 		{"reply-to", &replyTo, false},
 		{"tags", &tags, false},
+		{"deleted", &p.Deleted, false},
 	} {
 		if err := decode(values, f.key, f.target, f.required); err != nil {
 			return Post{}, err
@@ -219,6 +245,10 @@ func Parse(data []byte) (Post, error) {
 	p.Body = body
 	if err := p.Validate(); err != nil {
 		return Post{}, err
+	}
+	if p.Deleted != "" {
+		// Whatever else a deleted post's file holds, it has no text.
+		p.Title, p.Body, p.Tags = "", "", []string{}
 	}
 	return p, nil
 }

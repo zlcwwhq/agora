@@ -247,10 +247,10 @@ func insertPost(tx *sql.Tx, p post.Post) error {
 	}
 	id := p.ID.String()
 	if _, err := tx.Exec(`INSERT INTO posts
-		(id, node, n, thread, reply_to, harness, session, created, created_unix, title, body, title_fold, body_fold)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, node, n, thread, reply_to, harness, session, created, created_unix, title, body, title_fold, body_fold, deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, p.ID.Node, p.ID.N, p.ThreadID().String(), p.ReplyTo.String(), p.Harness, p.Session,
-		p.Created, created.Unix(), p.Title, p.Body, post.Fold(p.Title), post.Fold(p.Body),
+		p.Created, created.Unix(), p.Title, p.Body, post.Fold(p.Title), post.Fold(p.Body), p.Deleted,
 	); err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ type Entry struct {
 	Refs []post.ID
 }
 
-const entryColumns = "id, thread, reply_to, harness, session, created, title, body"
+const entryColumns = "id, thread, reply_to, harness, session, created, title, body, deleted"
 
 // displayOrder orders posts of the table aliased p for display.
 const displayOrder = "p.created_unix, p.node, p.n"
@@ -287,7 +287,7 @@ func (d *DB) entries(query string, args ...any) ([]Entry, error) {
 	for rows.Next() {
 		var p post.Post
 		var id, thread, replyTo string
-		if err := rows.Scan(&id, &thread, &replyTo, &p.Harness, &p.Session, &p.Created, &p.Title, &p.Body); err != nil {
+		if err := rows.Scan(&id, &thread, &replyTo, &p.Harness, &p.Session, &p.Created, &p.Title, &p.Body, &p.Deleted); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -353,13 +353,16 @@ func (d *DB) ThreadPosts(root post.ID) ([]Entry, error) {
 // Thread summarizes a thread.
 type Thread struct {
 	ID post.ID
-	// Title, Harness, Session, and Created are the root's, and empty if
-	// the root hasn't arrived.
-	Title, Harness, Session, Created string
-	// LastActivity is the creation time of the thread's latest post.
+	// Title, Harness, Session, Created, and Deleted are the root's, and
+	// empty if the root hasn't arrived. Title is empty if the root is
+	// deleted.
+	Title, Harness, Session, Created, Deleted string
+	// LastActivity is the creation time of the thread's latest post that
+	// isn't deleted.
 	LastActivity string
 	lastUnix     int64
-	Replies      int
+	// Replies counts the replies that aren't deleted.
+	Replies int
 	// Tags is the union of the thread's posts' tags, sorted.
 	Tags []string
 }
@@ -393,12 +396,19 @@ func (f Filter) where(table string) (string, []any) {
 	return " AND " + strings.Join(clauses, " AND "), args
 }
 
-// threadQuery selects thread summaries of roots aliased r.
+// threadQuery selects thread summaries of roots aliased r. Deleted posts
+// count neither as activity nor as replies.
 const threadQuery = `SELECT r.id, r.title, r.harness, r.session, r.created,
-	(SELECT p.created FROM posts p WHERE p.thread = r.id ORDER BY p.created_unix DESC, p.node DESC, p.n DESC LIMIT 1),
-	(SELECT max(p.created_unix) FROM posts p WHERE p.thread = r.id),
-	(SELECT count(*) FROM posts p WHERE p.thread = r.id) - 1
+	COALESCE((SELECT p.created FROM posts p WHERE p.thread = r.id AND p.deleted = ''
+		ORDER BY p.created_unix DESC, p.node DESC, p.n DESC LIMIT 1), ''),
+	COALESCE((SELECT max(p.created_unix) FROM posts p WHERE p.thread = r.id AND p.deleted = ''), 0),
+	(SELECT count(*) FROM posts p WHERE p.thread = r.id AND p.reply_to != '' AND p.deleted = ''),
+	r.deleted
 	FROM posts r WHERE r.reply_to = ''`
+
+// live restricts threads of roots aliased r to those with a post that isn't
+// deleted.
+const live = " AND EXISTS (SELECT 1 FROM posts lp WHERE lp.thread = r.id AND lp.deleted = '')"
 
 func (d *DB) threads(query string, args ...any) ([]Thread, error) {
 	rows, err := d.db.Query(query, args...)
@@ -409,7 +419,7 @@ func (d *DB) threads(query string, args ...any) ([]Thread, error) {
 	for rows.Next() {
 		var t Thread
 		var id string
-		if err := rows.Scan(&id, &t.Title, &t.Harness, &t.Session, &t.Created, &t.LastActivity, &t.lastUnix, &t.Replies); err != nil {
+		if err := rows.Scan(&id, &t.Title, &t.Harness, &t.Session, &t.Created, &t.LastActivity, &t.lastUnix, &t.Replies, &t.Deleted); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -452,9 +462,9 @@ func (d *DB) ThreadInfo(root post.ID) (Thread, error) {
 	var last sql.NullString
 	var lastUnix sql.NullInt64
 	err = d.db.QueryRow(`SELECT
-		(SELECT p.created FROM posts p WHERE p.thread = ?1 ORDER BY p.created_unix DESC, p.node DESC, p.n DESC LIMIT 1),
-		(SELECT max(p.created_unix) FROM posts p WHERE p.thread = ?1),
-		(SELECT count(*) FROM posts p WHERE p.thread = ?1)`, root.String()).Scan(&last, &lastUnix, &t.Replies)
+		(SELECT p.created FROM posts p WHERE p.thread = ?1 AND p.deleted = '' ORDER BY p.created_unix DESC, p.node DESC, p.n DESC LIMIT 1),
+		(SELECT max(p.created_unix) FROM posts p WHERE p.thread = ?1 AND p.deleted = ''),
+		(SELECT count(*) FROM posts p WHERE p.thread = ?1 AND p.deleted = '')`, root.String()).Scan(&last, &lastUnix, &t.Replies)
 	if err != nil {
 		return Thread{}, err
 	}
@@ -462,12 +472,13 @@ func (d *DB) ThreadInfo(root post.ID) (Thread, error) {
 	return t, d.threadTags(&t)
 }
 
-// List returns at most limit threads that match f, by most recent activity.
-// The author filter applies to the root.
+// List returns at most limit threads that match f, by most recent activity,
+// leaving out those whose every post is deleted. The author filter applies to
+// the root.
 func (d *DB) List(f Filter, limit int) ([]Thread, error) {
 	where, args := f.where("r")
 	args = append(args, limit)
-	return d.threads(threadQuery+where+" ORDER BY 7 DESC, r.node, r.n LIMIT ?", args...)
+	return d.threads(threadQuery+live+where+" ORDER BY 7 DESC, r.node, r.n LIMIT ?", args...)
 }
 
 // Fields that Search matches.
@@ -672,15 +683,16 @@ type Backlink struct {
 	// ID is the referencing post, To the referenced one.
 	ID, To post.ID
 	// Thread and Title identify the referencing post's thread; Title is
-	// empty if its root hasn't arrived.
-	Thread post.ID
-	Title  string
+	// empty if its root hasn't arrived or is deleted, as RootDeleted says.
+	Thread      post.ID
+	Title       string
+	RootDeleted bool
 }
 
 // Backlinks returns references from other threads to the posts of the thread
 // whose root is root.
 func (d *DB) Backlinks(root post.ID) ([]Backlink, error) {
-	rows, err := d.db.Query(`SELECT p.id, r.dst, p.thread, COALESCE(rt.title, '')
+	rows, err := d.db.Query(`SELECT p.id, r.dst, p.thread, COALESCE(rt.title, ''), COALESCE(rt.deleted, '') != ''
 		FROM refs r
 		JOIN posts dst ON dst.id = r.dst
 		JOIN posts p ON p.id = r.src
@@ -694,7 +706,7 @@ func (d *DB) Backlinks(root post.ID) ([]Backlink, error) {
 	for rows.Next() {
 		var src, dst, thread string
 		var b Backlink
-		if err := rows.Scan(&src, &dst, &thread, &b.Title); err != nil {
+		if err := rows.Scan(&src, &dst, &thread, &b.Title, &b.RootDeleted); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}

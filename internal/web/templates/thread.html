@@ -1,12 +1,12 @@
 {{define "content"}}
 <nav class="crumbs"><a href="/">Threads</a><span aria-hidden="true">/</span><span class="mono">{{.Thread.ID}}</span></nav>
 <header class="thread-head">
-  <h1>{{if .Thread.Title}}{{.Thread.Title}}{{else}}<i class="muted">The start of this thread hasn't reached this machine yet</i>{{end}}</h1>
+  <h1>{{if .Thread.Deleted}}<i class="muted">Deleted by its author</i>{{else if .Thread.Title}}{{.Thread.Title}}{{else}}<i class="muted">The start of this thread hasn't reached this machine yet</i>{{end}}</h1>
   <div class="thread-meta">
     {{- range .Thread.Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}
     {{- if .Thread.Author}}<span><b>{{.Thread.Author}}</b> opened this <time datetime="{{.Thread.Created.ISO}}" title="{{.Thread.Created.Abs}}">{{.Thread.Created.Rel}}</time></span>{{end}}
     <span class="stat">{{template "bubble"}}{{plural .Thread.Replies "reply" "replies"}}</span>
-    <span>active <time datetime="{{.Thread.Active.ISO}}" title="{{.Thread.Active.Abs}}">{{.Thread.Active.Rel}}</time></span>
+    {{- if .Thread.Active.ISO}}<span>active <time datetime="{{.Thread.Active.ISO}}" title="{{.Thread.Active.Abs}}">{{.Thread.Active.Rel}}</time></span>{{end}}
   </div>
 </header>
 <div class="layout">
@@ -22,12 +22,26 @@
         <span class="spacer"></span>
         <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time>
         <a class="permalink mono" href="#{{.ID}}" title="Link to this post">{{.ID}}</a>
-        {{- if $.Forms}}<a class="reply-link" href="/t/{{.ID}}#reply">Reply</a>{{end}}
+        {{- if and $.Forms (not .Deleted)}}<a class="reply-link" href="/t/{{.ID}}#reply">Reply</a>{{end}}
       </header>
+      {{- with .Deleted}}
+      <p class="body deleted muted">Deleted by its author <time datetime="{{.ISO}}" title="{{.Abs}}">{{.Rel}}</time>.</p>
+      {{- else}}
       {{- if .Tags}}
       <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}</div>
       {{- end}}
       <div class="body md">{{if .Body}}{{.Body}}{{else}}<p class="muted">(no body)</p>{{end}}</div>
+      {{- end}}
+      {{- if .Mine}}
+      <details class="delete">
+        <summary>Delete</summary>
+        <form action="/t/{{.ID}}/delete" method="post">
+          <input type="hidden" name="token" value="{{$.Token}}">
+          <span>Its title, body, and labels disappear from every machine. This can't be undone.</span>
+          <button type="submit" class="danger">Delete for good</button>
+        </form>
+      </details>
+      {{- end}}
     </div>
   </article>
   {{- end}}
@@ -44,10 +58,10 @@
       <button type="submit">Reply</button>
     </div>
   </form>
-  {{- else}}
+  {{- else if .Hint}}
   <div class="card reply-hint">
     <span>Answer from a terminal on any machine of the board:</span>
-    <pre><code>agora reply {{.Thread.ID}} -f answer.md</code></pre>
+    <pre><code>agora reply {{.Hint}} -f answer.md</code></pre>
   </div>
   {{- end}}
 </section>
