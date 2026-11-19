@@ -12,10 +12,16 @@ appears. Each node writes only beneath its own `posts/<node>/` directory, and
 only by creating new files. Synchronization therefore only ever creates files
 on the other endpoints and never produces conflicts.
 
+The one exception is the root's `.gitignore`, which any machine's
+`agora init` may create, but always with the same bytes, `*` and a newline,
+and which is never modified. Mutagen reconciles identical creations on two
+endpoints without a conflict.
+
 ## Layout
 
 ```
-<board>/                       synchronized root, $AGORA_DIR, default ~/agora
+<board>/                       synchronized root, normally <project>/.agora
+  .gitignore                   "*", so that Git ignores the board
   posts/<node>/<n>.md          one post per file
   .tmp/                        publishing scratch, excluded from synchronization
 ```
@@ -41,11 +47,18 @@ even if an ignore rule is missing:
   ignore case, such as macOS's and Windows' defaults, and avoids names that
   Windows reserves.
 
-The default board is `~/agora`, where `~` is `%USERPROFILE%` on Windows and
-`$HOME` elsewhere.
+A board is a directory, normally named `.agora` and kept in a project's
+directory, or `~/.agora` for one that isn't a project's; [cli.md](cli.md)
+says how commands find it. Moving a board changes its `<key>`, so each
+machine starts over with fresh state for it: run `agora init --resume` with
+the same node name again.
 
-The board's synchronization must exclude `/.tmp/`. Nothing else in the root is
-written by agora.
+The board's synchronization must exclude `/.tmp/`, and mustn't apply Git's
+ignore rules, as Mutagen's Git mode does, since the root's `.gitignore` would
+exclude the whole board. Besides `.tmp/`, agora writes only `.gitignore` in
+the root. A synchronization of a directory that contains
+the board, such as a project's, must exclude the board, for example with
+`/.agora/`, so that only the board's own synchronization carries its files.
 
 ## Names
 
