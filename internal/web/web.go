@@ -319,14 +319,25 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "Can't read the form: "+err.Error())
 		return
 	}
+	f := form{Title: r.PostForm.Get("title"), Tags: r.PostForm.Get("tags"), Body: r.PostForm.Get("body"), Nonce: r.PostForm.Get("nonce")}
+	raw := r.PathValue("id")
 	if !s.genuine(r) {
+		if s.sameOrigin(r) {
+			// Only these pages' forms name this origin: one loaded before
+			// serve restarted holds the old token. Give its text back,
+			// with the current token.
+			f.Reason = "agora serve has restarted since this page was loaded, so nothing was posted. " +
+				"Check what you typed, and send it again."
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.refill(w, http.StatusForbidden, raw, f)
+			return
+		}
 		s.fail(w, http.StatusForbidden, "This form didn't come from these pages, or agora serve has restarted since it was loaded: "+
 			"load the page again and post from it.")
 		return
 	}
-	f := form{Title: r.PostForm.Get("title"), Tags: r.PostForm.Get("tags"), Body: r.PostForm.Get("body"), Nonce: r.PostForm.Get("nonce")}
 	d := Draft{Title: f.Title, Body: f.Body, Tags: splitTags(f.Tags)}
-	raw := r.PathValue("id")
 	if raw != "" {
 		target, err := post.ParseID(strings.TrimPrefix(raw, "#"))
 		if err != nil {
@@ -349,7 +360,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
 		f.Reason = refused.Reason
-		s.refill(w, raw, f)
+		s.refill(w, http.StatusBadRequest, raw, f)
 	case errors.As(err, &refused):
 		s.fail(w, refused.Status, refused.Reason)
 	case err != nil:
@@ -380,15 +391,23 @@ func (s *server) genuine(r *http.Request) bool {
 	if subtle.ConstantTimeCompare([]byte(r.PostForm.Get("token")), []byte(s.token)) != 1 {
 		return false
 	}
-	origin := r.Header.Get("Origin")
-	return origin == "" || strings.EqualFold(origin, "http://"+r.Host)
+	return r.Header.Get("Origin") == "" || s.sameOrigin(r)
 }
 
-// refill shows a refused form again with status 400: the new thread's form,
-// or the thread of the post replied to, raw, with the reply's form.
-func (s *server) refill(w http.ResponseWriter, raw string, f form) {
+// sameOrigin reports whether a request names the origin it was sent to as its
+// Origin, as browsers do for these pages' forms, and only for them.
+func (s *server) sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin != "" && strings.EqualFold(origin, "http://"+r.Host)
+}
+
+// refill shows a refused form again with status: the new thread's form, or
+// the thread of the post replied to, raw, with the reply's form. If the post
+// can't be replied to, as when it is deleted, it shows the reason and what was
+// typed without a form.
+func (s *server) refill(w http.ResponseWriter, status int, raw string, f form) {
 	if raw == "" {
-		s.render(w, http.StatusBadRequest, "new", newView{base: s.base("new", "New thread", query{}), Form: f})
+		s.render(w, status, "new", newView{base: s.base("new", "New thread", query{}), Form: f})
 		return
 	}
 	idx, err := s.cfg.Open()
@@ -401,21 +420,17 @@ func (s *server) refill(w http.ResponseWriter, raw string, f form) {
 	v, err := s.threadView(raw, idx)
 	var he httpError
 	switch {
-	case errors.As(err, &he):
-		s.fail(w, he.status, he.msg)
-	case err != nil:
+	case err != nil && !errors.As(err, &he):
 		s.cfg.Logf("serve: %v", err)
 		s.fail(w, http.StatusInternalServerError, "Can't show this page: "+err.Error())
-	case v.Target == "":
-		// The post replied to can't be replied to, as when it is deleted,
-		// so the page has no form: show the reason and what was typed.
-		s.render(w, http.StatusBadRequest, "error", errorView{
-			base:   s.base("", http.StatusText(http.StatusBadRequest), query{}),
-			Status: http.StatusBadRequest, Text: f.Reason, Typed: f.Body,
+	case err != nil || v.Target == "":
+		s.render(w, status, "error", errorView{
+			base:   s.base("", http.StatusText(status), query{}),
+			Status: status, Text: f.Reason, Typed: f.Body,
 		})
 	default:
 		v.Form = f
-		s.render(w, http.StatusBadRequest, "thread", v)
+		s.render(w, status, "thread", v)
 	}
 }
 
