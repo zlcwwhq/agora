@@ -1,0 +1,428 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/zlcwwhq/agora/internal/post"
+)
+
+var (
+	alice  = post.Identity{Harness: "human", Session: "alice", Node: "laptop"}
+	codex  = post.Identity{Harness: "codex", Session: "019a2b3c-0000", Node: "gpu"}
+	claude = post.Identity{Harness: "claude-code", Session: "95d3e5c1-1111", Node: "laptop"}
+)
+
+// clock is a fake clock that advances a minute each time it is read.
+type clock struct{ t time.Time }
+
+func (c *clock) now() time.Time {
+	c.t = c.t.Add(time.Minute)
+	return c.t
+}
+
+func open(t *testing.T) (*Store, *clock) {
+	t.Helper()
+	c := &clock{t: time.Date(2026, 11, 20, 9, 0, 0, 0, time.FixedZone("CET", 3600))}
+	s, err := Open(filepath.Join(t.TempDir(), "board.db"), c.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s, c
+}
+
+func must[T any](t *testing.T) func(T, error) T {
+	return func(v T, err error) T {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+}
+
+func newThread(t *testing.T, s *Store, who post.Identity, title, body string, tags ...string) int64 {
+	t.Helper()
+	pub, created, err := s.Post(context.Background(), who, post.NewThread{Title: title, Body: body, Tags: tags})
+	if err != nil || !created {
+		t.Fatalf("Post: %v, created %v", err, created)
+	}
+	return pub.ID
+}
+
+func reply(t *testing.T, s *Store, who post.Identity, to int64, body string, tags ...string) int64 {
+	t.Helper()
+	pub, created, err := s.Reply(context.Background(), who, to, post.NewReply{Body: body, Tags: tags})
+	if err != nil || !created {
+		t.Fatalf("Reply: %v, created %v", err, created)
+	}
+	return pub.ID
+}
+
+func count(t *testing.T, s *Store, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestThreadsAreFlat(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	root := newThread(t, s, codex, "Star edges", "Proposal", "Mutagen")
+	r1 := reply(t, s, claude, root, "Agreed", "design")
+	r2 := reply(t, s, alice, r1, "Me too")
+
+	show := must[post.Show](t)(s.Show(ctx, r2))
+	if show.Focus != r2 || show.Thread.ID != root || show.Thread.Replies != 2 {
+		t.Fatalf("thread = %+v", show.Thread)
+	}
+	if !slices.Equal(show.Thread.Tags, []string{"design", "mutagen"}) {
+		t.Errorf("thread tags = %v", show.Thread.Tags)
+	}
+	if show.Thread.LastActivity != show.Posts[2].Created || show.Thread.Author != "codex/019a2b3c@gpu" {
+		t.Errorf("thread = %+v", show.Thread)
+	}
+	var ids []int64
+	for _, p := range show.Posts {
+		ids = append(ids, p.ID)
+		if p.Thread != root {
+			t.Errorf("post %d has thread %d", p.ID, p.Thread)
+		}
+	}
+	if !slices.Equal(ids, []int64{root, r1, r2}) {
+		t.Errorf("posts = %v", ids)
+	}
+	if show.Posts[0].ReplyTo != nil || *show.Posts[1].ReplyTo != root || *show.Posts[2].ReplyTo != r1 {
+		t.Errorf("reply_to wrong: %+v", show.Posts)
+	}
+	if show.Posts[0].Body != "Proposal\n" || show.Posts[0].Title != "Star edges" || show.Posts[1].Title != "" {
+		t.Errorf("root = %+v", show.Posts[0])
+	}
+
+	if _, _, err := s.Reply(ctx, claude, 99, post.NewReply{Body: "x"}); post.KindOf(err) != post.NotFound {
+		t.Errorf("reply to a missing post: %v", err)
+	}
+	if _, _, err := s.Reply(ctx, claude, root, post.NewReply{Body: " \n"}); post.KindOf(err) != post.Invalid {
+		t.Errorf("reply without a body: %v", err)
+	}
+	if _, _, err := s.Post(ctx, claude, post.NewThread{Title: "", Body: "x"}); post.KindOf(err) != post.Invalid {
+		t.Errorf("thread without a title: %v", err)
+	}
+}
+
+func TestRefsCountOnlyExistingPosts(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	a := newThread(t, s, codex, "A", "first")
+	b := newThread(t, s, codex, "B", "second")
+	c := newThread(t, s, claude, "C", "See #2, #1, #2 again, PR #123, and myself #3. `#1`")
+	p := must[post.Post](t)(s.Get(ctx, c))
+	if !slices.Equal(p.Refs, []int64{b, a}) {
+		t.Fatalf("refs = %v, want [%d %d]", p.Refs, b, a)
+	}
+	show := must[post.Show](t)(s.Show(ctx, a))
+	if len(show.Backlinks) != 1 || show.Backlinks[0] != (post.Backlink{ID: c, To: a, Thread: c, Title: "C"}) {
+		t.Errorf("backlinks = %+v", show.Backlinks)
+	}
+
+	// Editing recomputes them.
+	body := "Only #1 now"
+	p = must[post.Post](t)(s.Edit(ctx, claude, c, post.Edit{Body: &body}))
+	if !slices.Equal(p.Refs, []int64{a}) {
+		t.Errorf("refs after edit = %v", p.Refs)
+	}
+	// Deleting the target removes them.
+	must[post.Removed](t)(s.Delete(ctx, codex, a))
+	p = must[post.Post](t)(s.Get(ctx, c))
+	if len(p.Refs) != 0 {
+		t.Errorf("refs after deleting #1 = %v", p.Refs)
+	}
+}
+
+func TestDeleteRootRemovesThread(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	other := newThread(t, s, alice, "Other", "body")
+	root := newThread(t, s, codex, "Doomed", "body", "x")
+	r1 := reply(t, s, claude, root, "reply with #1", "y")
+	r2 := reply(t, s, alice, r1, "reply to the reply")
+	reply(t, s, alice, other, "links to #"+strconv.FormatInt(r1, 10))
+
+	if _, err := s.Delete(ctx, claude, root); post.KindOf(err) != post.Forbidden {
+		t.Fatalf("another author's delete: %v", err)
+	}
+	removed := must[post.Removed](t)(s.Delete(ctx, codex, root))
+	if removed.ID != root || removed.Thread != root || !slices.Equal(removed.Removed, []int64{root, r1, r2}) {
+		t.Fatalf("removed = %+v", removed)
+	}
+	for _, q := range []string{
+		"SELECT count(*) FROM posts WHERE id IN (?, ?, ?)",
+		"SELECT count(*) FROM tags WHERE post IN (?, ?, ?)",
+		"SELECT count(*) FROM refs WHERE src IN (?, ?, ?) OR dst IN (?, ?, ?)",
+	} {
+		args := []any{root, r1, r2}
+		if strings.Count(q, "?") == 6 {
+			args = append(args, args...)
+		}
+		if n := count(t, s, q, args...); n != 0 {
+			t.Errorf("%s: %d rows left", q, n)
+		}
+	}
+	if _, err := s.Show(ctx, r2); post.KindOf(err) != post.NotFound {
+		t.Errorf("show of a deleted reply: %v", err)
+	}
+	if _, err := s.Delete(ctx, codex, root); post.KindOf(err) != post.NotFound {
+		t.Errorf("deleting again: %v", err)
+	}
+	if ts := must[[]post.Thread](t)(s.List(ctx, post.Filter{})); len(ts) != 1 || ts[0].ID != other {
+		t.Errorf("list = %+v", ts)
+	}
+}
+
+func TestDeleteReplyKeepsItsReplies(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	root := newThread(t, s, codex, "T", "")
+	r1 := reply(t, s, claude, root, "one")
+	r2 := reply(t, s, codex, r1, "two")
+
+	removed := must[post.Removed](t)(s.Delete(ctx, alice, r1)) // a person may delete anything
+	if !slices.Equal(removed.Removed, []int64{r1}) || removed.Thread != root {
+		t.Fatalf("removed = %+v", removed)
+	}
+	show := must[post.Show](t)(s.Show(ctx, root))
+	if len(show.Posts) != 2 || show.Posts[1].ID != r2 || show.Posts[1].ReplyTo != nil || show.Thread.Replies != 1 {
+		t.Errorf("after deleting the reply: %+v", show)
+	}
+	// Ids are never given again.
+	if r3 := reply(t, s, codex, root, "three"); r3 <= r2 {
+		t.Errorf("new id %d after %d", r3, r2)
+	}
+}
+
+func TestEdit(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	root := newThread(t, s, codex, "Old title", "old body", "a", "b")
+	r := reply(t, s, claude, root, "a reply")
+	before := must[post.Show](t)(s.Show(ctx, root))
+
+	title, body := "New title", "new body"
+	p := must[post.Post](t)(s.Edit(ctx, codex, root, post.Edit{Title: &title, Body: &body}))
+	if p.Title != title || p.Body != "new body\n" || !slices.Equal(p.Tags, []string{"a", "b"}) || p.Edited == "" || p.Editor != "" {
+		t.Errorf("after the author's edit: %+v", p)
+	}
+	none := []string{}
+	p = must[post.Post](t)(s.Edit(ctx, alice, root, post.Edit{Tags: &none}))
+	if len(p.Tags) != 0 || p.Editor != "human/alice@laptop" {
+		t.Errorf("after a person's edit: %+v", p)
+	}
+	after := must[post.Show](t)(s.Show(ctx, root))
+	if after.Thread.LastActivity != before.Thread.LastActivity || after.Thread.Title != title || len(after.Thread.Tags) != 0 {
+		t.Errorf("thread after edits = %+v", after.Thread)
+	}
+
+	// An edit that changes nothing records nothing.
+	same := "a reply"
+	p = must[post.Post](t)(s.Edit(ctx, claude, r, post.Edit{Body: &same}))
+	if p.Edited != "" {
+		t.Errorf("unchanged edit recorded %q", p.Edited)
+	}
+
+	empty, other := "", "x"
+	for _, c := range []struct {
+		who  post.Identity
+		id   int64
+		e    post.Edit
+		kind post.Kind
+	}{
+		{codex, r, post.Edit{Body: &other}, post.Forbidden},
+		{claude, r, post.Edit{Title: &other}, post.Invalid},
+		{claude, r, post.Edit{Body: &empty}, post.Invalid},
+		{codex, root, post.Edit{Title: &empty}, post.Invalid},
+		{codex, root, post.Edit{}, post.Invalid},
+		{codex, 99, post.Edit{Body: &other}, post.NotFound},
+	} {
+		if _, err := s.Edit(ctx, c.who, c.id, c.e); post.KindOf(err) != c.kind {
+			t.Errorf("Edit(%+v, %d): %v, want kind %d", c.who, c.id, err, c.kind)
+		}
+	}
+	// A root's body may become empty.
+	if p := must[post.Post](t)(s.Edit(ctx, codex, root, post.Edit{Body: &empty})); p.Body != "" {
+		t.Errorf("root body = %q", p.Body)
+	}
+}
+
+func TestNonce(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	req := post.NewThread{Title: "T", Body: "b", Nonce: "n1"}
+	first, created, err := s.Post(ctx, alice, req)
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+	again, created, err := s.Post(ctx, alice, req)
+	if err != nil || created || again != first {
+		t.Errorf("repeat = %+v, created %v, %v", again, created, err)
+	}
+	req.Body = "changed"
+	if _, created, _ := s.Post(ctx, alice, req); !created {
+		t.Error("a changed request with the same nonce published nothing")
+	}
+	if _, created, _ := s.Reply(ctx, alice, first.ID, post.NewReply{Body: "b", Nonce: "n1"}); !created {
+		t.Error("a reply with a thread's nonce published nothing")
+	}
+	if _, _, err := s.Post(ctx, alice, post.NewThread{Title: "T", Nonce: "bad nonce"}); post.KindOf(err) != post.Invalid {
+		t.Errorf("invalid nonce: %v", err)
+	}
+}
+
+func TestUnread(t *testing.T) {
+	s, c := open(t)
+	ctx := context.Background()
+	old := newThread(t, s, codex, "Old", "x")
+	c.t = c.t.Add(3 * time.Hour)
+	recent := reply(t, s, codex, old, "recent")
+
+	// A new reader with a lookback sees what was created within it.
+	u := must[post.Unread](t)(s.Unread(ctx, claude, post.UnreadRequest{Since: 3600}))
+	if !u.NewReader || len(u.Posts) != 1 || u.Posts[0].ID != recent {
+		t.Fatalf("first unread = %+v", u)
+	}
+	if u = must[post.Unread](t)(s.Unread(ctx, claude, post.UnreadRequest{})); u.NewReader || len(u.Posts) != 0 {
+		t.Fatalf("second unread = %+v", u)
+	}
+
+	// Own posts are seen; others' are unread; edits aren't.
+	mine := reply(t, s, claude, old, "mine")
+	theirs := reply(t, s, codex, mine, "theirs")
+	body := "edited"
+	must[post.Post](t)(s.Edit(ctx, codex, old, post.Edit{Body: &body}))
+	u = must[post.Unread](t)(s.Unread(ctx, claude, post.UnreadRequest{Peek: true}))
+	if len(u.Posts) != 1 || u.Posts[0].ID != theirs {
+		t.Fatalf("peek = %+v", u)
+	}
+	if u = must[post.Unread](t)(s.Unread(ctx, claude, post.UnreadRequest{})); len(u.Posts) != 1 {
+		t.Fatalf("after peek = %+v", u)
+	}
+	if u = must[post.Unread](t)(s.Unread(ctx, claude, post.UnreadRequest{})); len(u.Posts) != 0 {
+		t.Fatalf("after reading = %+v", u)
+	}
+
+	// A new reader without a lookback has seen everything; one that posts
+	// first starts at its post.
+	if u = must[post.Unread](t)(s.Unread(ctx, alice, post.UnreadRequest{})); !u.NewReader || len(u.Posts) != 0 {
+		t.Errorf("new reader = %+v", u)
+	}
+	poster := post.Identity{Harness: "codex", Session: "other", Node: "gpu"}
+	reply(t, s, poster, old, "first words")
+	later := reply(t, s, codex, old, "an answer")
+	if u = must[post.Unread](t)(s.Unread(ctx, poster, post.UnreadRequest{Since: 999999})); u.NewReader || len(u.Posts) != 1 || u.Posts[0].ID != later {
+		t.Errorf("reader who posted first = %+v", u)
+	}
+}
+
+func TestListSearchTags(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	a := newThread(t, s, codex, "Mutagen conflicts", "about stars", "mutagen")
+	b := newThread(t, s, claude, "Web pages", "The STAR of the show", "web")
+	reply(t, s, alice, a, "conflicts again", "design")
+	c := newThread(t, s, claude, "冲突处理", "中文正文", "web")
+
+	ids := func(ts []post.Thread) []int64 {
+		var out []int64
+		for _, t := range ts {
+			out = append(out, t.ID)
+		}
+		return out
+	}
+	if got := ids(must[[]post.Thread](t)(s.List(ctx, post.Filter{}))); !slices.Equal(got, []int64{c, a, b}) {
+		t.Errorf("list = %v", got)
+	}
+	if got := ids(must[[]post.Thread](t)(s.List(ctx, post.Filter{Tags: []string{"Web"}}))); !slices.Equal(got, []int64{c, b}) {
+		t.Errorf("list -t web = %v", got)
+	}
+	if got := ids(must[[]post.Thread](t)(s.List(ctx, post.Filter{Tags: []string{"mutagen", "design"}}))); !slices.Equal(got, []int64{a}) {
+		t.Errorf("list -t mutagen -t design = %v", got)
+	}
+	if got := ids(must[[]post.Thread](t)(s.List(ctx, post.Filter{Author: "claude-code/95d3"}))); !slices.Equal(got, []int64{c, b}) {
+		t.Errorf("list --author = %v", got)
+	}
+	if got := ids(must[[]post.Thread](t)(s.List(ctx, post.Filter{Limit: 1}))); !slices.Equal(got, []int64{c}) {
+		t.Errorf("list -n 1 = %v", got)
+	}
+	if _, err := s.List(ctx, post.Filter{Author: "Bad"}); post.KindOf(err) != post.Invalid {
+		t.Errorf("invalid author: %v", err)
+	}
+
+	rs := must[[]post.Result](t)(s.Search(ctx, post.Query{Terms: []string{"star"}}))
+	if len(rs) != 2 || rs[0].ID != a || rs[1].ID != b || rs[1].Matches[0].Field != post.FieldBody || rs[1].Matches[0].Snippet != "The STAR of the show" {
+		t.Errorf("search star = %+v", rs)
+	}
+	rs = must[[]post.Result](t)(s.Search(ctx, post.Query{Terms: []string{"conflicts"}}))
+	if len(rs) != 1 || len(rs[0].Matches) != 2 || rs[0].Matches[0].Field != post.FieldTitle {
+		t.Errorf("search conflicts = %+v", rs)
+	}
+	rs = must[[]post.Result](t)(s.Search(ctx, post.Query{Terms: []string{"conflicts"}, Field: post.FieldBody, Filter: post.Filter{Author: "human"}}))
+	if len(rs) != 1 || len(rs[0].Matches) != 1 || rs[0].Matches[0].Field != post.FieldBody {
+		t.Errorf("search --body --author human = %+v", rs)
+	}
+	if rs = must[[]post.Result](t)(s.Search(ctx, post.Query{Terms: []string{"冲突"}})); len(rs) != 1 || rs[0].ID != c {
+		t.Errorf("search 冲突 = %+v", rs)
+	}
+	if _, err := s.Search(ctx, post.Query{Terms: []string{" "}}); post.KindOf(err) != post.Invalid {
+		t.Errorf("search without terms: %v", err)
+	}
+
+	tags := must[[]post.TagCount](t)(s.Tags(ctx))
+	want := []post.TagCount{{Tag: "web", Threads: 2}, {Tag: "design", Threads: 1}, {Tag: "mutagen", Threads: 1}}
+	if !slices.Equal(tags, want) {
+		t.Errorf("tags = %v", tags)
+	}
+	hs := must[[]post.HarnessCount](t)(s.Harnesses(ctx))
+	if !slices.Equal(hs, []post.HarnessCount{{Harness: "claude-code", Posts: 2}, {Harness: "codex", Posts: 1}, {Harness: "human", Posts: 1}}) {
+		t.Errorf("harnesses = %v", hs)
+	}
+}
+
+func TestOpenLocksAndChecksVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "board.db")
+	s, err := Open(path, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path, time.Now); err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Errorf("second Open: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path, time.Now)
+	if err != nil {
+		t.Fatalf("Open after Close: %v", err)
+	}
+	_ = s.Close()
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA user_version = 99"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if _, err := Open(path, time.Now); err == nil || !strings.Contains(err.Error(), "later version") {
+		t.Errorf("Open of a later schema: %v", err)
+	}
+}

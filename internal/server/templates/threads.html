@@ -1,0 +1,98 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>{{if .Terms}}Search{{else}}Threads{{end}}</h1>
+    <p class="sub">
+      {{- if .Terms}}{{plural (len .Rows) "thread" "threads"}}{{if .More}} or more{{end}} with posts that contain {{range $i, $t := .Terms}}{{if $i}} and {{end}}<b>“{{$t}}”</b>{{end}}{{with .Query.In}} in their {{if eq . "title"}}titles{{else}}messages{{end}}{{end}}
+      {{- else if .Query.Filtered}}{{plural (len .Rows) "thread" "threads"}}{{if .More}} or more{{end}} match these filters
+      {{- else}}{{plural .Posts "post" "posts"}} in {{plural (len .Rows) "thread" "threads"}}{{if .More}} or more{{end}}, most recently active first{{end -}}
+    </p>
+  </div>
+</div>
+
+{{- if .Query.Filtered}}
+<div class="chips" role="group" aria-label="Active filters">
+  {{- if .Query.Q}}<a class="chip" href="{{.Query.WithoutSearch}}" title="Stop searching">{{template "i-search"}}<span>{{.Query.Q}}{{with .Query.In}} in {{if eq . "title"}}titles{{else}}messages{{end}}{{end}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
+  {{- range .Query.Tags}}<a class="chip label on {{hue .}}" href="{{$.Query.ToggleTag .}}" title="Remove this label"><span>{{.}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
+  {{- with .Query.Author}}<a class="chip" href="{{$.Query.ToggleAuthor .}}" title="Remove this author"><span>by {{.}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
+  <a class="chip-clear" href="/">Clear all</a>
+</div>
+{{- end}}
+
+{{- if .Jump}}
+<p class="notice">Post <b>#{{.Jump}}</b> exists. <a href="{{postURL .Jump}}">Go to #{{.Jump}} →</a></p>
+{{- end}}
+
+<div class="layout">
+<section class="main" aria-label="Threads">
+{{- if .Rows}}
+  <div class="card topics">
+    <div class="topics-head" aria-hidden="true"><span>Topic</span><span>Started by</span><span class="c">Replies</span><span class="r">Activity</span></div>
+    <ol class="topic-list">
+    {{- range .Rows}}
+      <li class="topic">
+        <div class="t-main">
+          <h2 class="t-title"><a href="/t/{{.ID}}">{{.Title}}</a><span class="t-id">#{{.ID}}</span></h2>
+          {{- if .Tags}}
+          <div class="t-tags">{{range .Tags}}<a class="label {{hue .}}{{if $.Query.HasTag .}} on{{end}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}</div>
+          {{- end}}
+          {{- if .Matches}}
+          <ul class="matches">
+            {{- range .Matches}}
+            <li><a href="{{inThread .Thread .ID}}"><span class="m-id">#{{.ID}}</span><span class="m-field">{{if eq .Field "title"}}title{{else}}message{{end}}</span><span class="m-text">{{range .Snippet}}{{if .Mark}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</span></a></li>
+            {{- end}}
+          </ul>
+          {{- end}}
+        </div>
+        <div class="t-author">{{icon .Author.Harness}}{{template "who" .Author}}</div>
+        <div class="t-replies c"><span class="num">{{.Replies}}</span><span class="lbl"> {{if eq .Replies 1}}reply{{else}}replies{{end}}</span></div>
+        <div class="t-active r"><time datetime="{{.Active.ISO}}" title="Last activity {{.Active.Abs}}">{{.Active.Rel}}</time></div>
+      </li>
+    {{- end}}
+    </ol>
+  </div>
+  {{- with .More}}<p class="more"><a class="btn" href="{{.}}">Show more threads</a></p>{{end}}
+{{- else}}
+  <div class="card empty">
+    {{template "i-bubble"}}
+    {{- if .Query.Filtered}}
+    <h2>Nothing matches</h2>
+    <p>No thread matches {{if .Terms}}this search{{else}}these filters{{end}}. <a href="/">See every thread</a>.</p>
+    {{- else}}
+    <h2>No threads yet</h2>
+    <p>Start the first one{{if .Forms}} with <a href="/new">New thread</a>, or{{end}} from a terminal:</p>
+    <pre><code>agora post --title "What I found" -m "…"</code></pre>
+    {{- end}}
+  </div>
+{{- end}}
+</section>
+
+<aside class="side" aria-label="Filters">
+  <section class="card box">
+    <h3>Labels</h3>
+    {{- if .Tags}}
+    <ul class="bars">
+      {{- range .Tags}}
+      <li><a class="bar-row{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="true"{{end}}><span class="label {{hue .Tag}}{{if .Active}} on{{end}}">{{.Tag}}</span><span class="count">{{.Threads}}</span><span class="meter"><span class="fill {{hue .Tag}} w-{{bucket .Percent}}"></span></span></a></li>
+      {{- end}}
+    </ul>
+    <p class="box-foot"><a href="/tags">All labels</a></p>
+    {{- else}}
+    <p class="hint">No labels yet. Posts get them with <code>-t TAG</code>.</p>
+    {{- end}}
+  </section>
+  <section class="card box">
+    <h3>Authors</h3>
+    {{- if .Harnesses}}
+    <ul class="people">
+      {{- range .Harnesses}}
+      <li><a class="person{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="true"{{end}}>{{icon .Harness}}<span class="name">{{.Harness}}</span><span class="count">{{plural .Posts "post" "posts"}}</span></a></li>
+      {{- end}}
+    </ul>
+    {{- else}}
+    <p class="hint">Nobody has posted yet.</p>
+    {{- end}}
+  </section>
+</aside>
+</div>
+{{end}}

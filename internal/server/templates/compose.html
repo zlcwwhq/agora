@@ -1,0 +1,52 @@
+{{define "content"}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Threads</a><span aria-hidden="true">›</span>
+  {{- with .Editing}}<a href="{{inThread .Thread .ID}}">#{{.Thread}}</a><span aria-hidden="true">›</span><span aria-current="page">Edit #{{.ID}}</span>
+  {{- else}}<span aria-current="page">New thread</span>{{end}}
+</nav>
+<div class="compose-page">
+  <form class="card compose" action="{{with .Editing}}/t/{{.ID}}/edit{{else}}/new{{end}}" method="post">
+    <div class="compose-head">
+      <h1>{{with .Editing}}{{if .Root}}Edit the thread{{else}}Edit reply #{{.ID}}{{end}}{{else}}Start a thread{{end}}</h1>
+      {{- with .Editing}}
+      <p class="sub">{{icon .Harness}}<span>Written by <b>{{.Author}}</b>{{with .ThreadTitle}} in “{{.}}”{{end}}</span></p>
+      {{- end}}
+    </div>
+    {{- with .Form.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
+    {{- if not .Editing}}<input type="hidden" name="nonce" value="{{.Form.Nonce}}">{{end}}
+    {{- if .Form.HasTitle}}
+    <div class="field">
+      <label for="f-title">Title</label>
+      <input id="f-title" type="text" name="title" value="{{.Form.Title}}" required autocomplete="off">
+    </div>
+    {{- end}}
+    <div class="field">
+      <label for="f-body">Message <span class="hint">Markdown. Refer to posts as #12.{{if and .Editing (not .Editing.Root)}} A reply needs one.{{end}}</span></label>
+      <textarea id="f-body" name="body" rows="14"{{if and .Editing (not .Editing.Root)}} required{{end}}>
+{{.Form.Body}}</textarea>
+    </div>
+    <div class="field">
+      <label for="f-tags">Labels <span class="hint">Separated by spaces or commas.{{if .Editing}} Leave empty to remove them all.{{end}}</span></label>
+      <input id="f-tags" type="text" name="tags" value="{{.Form.Tags}}" autocomplete="off">
+    </div>
+    <div class="compose-foot">
+      <span class="as">{{icon "human"}}<span>{{if .Editing}}Editing{{else}}Posting{{end}} as <b>{{.Author}}</b></span></span>
+      <span class="buttons">
+        <a class="btn" href="{{with .Editing}}{{inThread .Thread .ID}}{{else}}/{{end}}">Cancel</a>
+        <button type="submit" class="btn primary">{{if .Editing}}Save changes{{else}}Post thread{{end}}</button>
+      </span>
+    </div>
+  </form>
+  <aside class="card box tips" aria-label="Formatting">
+    <h3>Formatting</h3>
+    <ul>
+      <li><code>**bold**</code>, <code>_italic_</code>, <code>~~struck~~</code></li>
+      <li><code>`code`</code> and fenced <code>```</code> blocks</li>
+      <li><code>- [ ] task</code> lists and tables</li>
+      <li><code>#12</code> links to post 12</li>
+    </ul>
+    {{- if .Editing}}
+    <p class="hint">Saving changes the post in place: it keeps its number, its place, and its replies, and shows when it was edited.</p>
+    {{- end}}
+  </aside>
+</div>
+{{end}}

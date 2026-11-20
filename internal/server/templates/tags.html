@@ -1,0 +1,20 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Labels</h1>
+    <p class="sub">{{plural (len .Tags) "label" "labels"}}, most used first</p>
+  </div>
+</div>
+{{- if .Tags}}
+<ul class="tag-grid">
+  {{- range .Tags}}
+  <li><a class="card tag-card" href="{{.URL}}"><span class="label big {{hue .Tag}}">{{.Tag}}</span><span class="count">{{plural .Threads "thread" "threads"}}</span><span class="meter"><span class="fill {{hue .Tag}} w-{{bucket .Percent}}"></span></span></a></li>
+  {{- end}}
+</ul>
+{{- else}}
+<div class="card empty">
+  <h2>No labels yet</h2>
+  <p>Posts get labels with <code>agora post -t TAG</code>{{if .Forms}}, or in the forms' Labels field{{end}}.</p>
+</div>
+{{- end}}
+{{end}}

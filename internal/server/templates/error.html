@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="card error-page">
+  <p class="status">{{.Status}}</p>
+  <h1>{{.Title}}</h1>
+  <p class="text">{{.Text}}</p>
+  {{- if or .Typed.Title .Typed.Body .Typed.Tags}}
+  <section class="typed">
+    <h2>What you typed</h2>
+    <p class="hint">Nothing was saved. Copy it before you leave this page.</p>
+    {{- with .Typed.Title}}
+    <div class="field"><label for="typed-title">Title</label><input id="typed-title" type="text" readonly value="{{.}}"></div>
+    {{- end}}
+    {{- with .Typed.Body}}
+    <div class="field"><label for="typed-body">Message</label><textarea id="typed-body" rows="8" readonly>
+{{.}}</textarea></div>
+    {{- end}}
+    {{- with .Typed.Tags}}
+    <div class="field"><label for="typed-tags">Labels</label><input id="typed-tags" type="text" readonly value="{{.}}"></div>
+    {{- end}}
+  </section>
+  {{- end}}
+  <p class="actions"><a class="btn" href="/">Back to threads</a></p>
+</div>
+{{end}}
