@@ -12,9 +12,9 @@ STATICCHECK ?= staticcheck
 GOVULNCHECK ?= govulncheck
 PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
-.PHONY: verify fmt vet vet-cross lint deps test cross vuln build release test-windows
+.PHONY: verify fmt vet vet-cross lint deps tempdirs test cross vuln build release test-windows
 
-verify: fmt vet vet-cross lint deps test cross vuln
+verify: fmt vet vet-cross lint deps tempdirs test cross vuln
 
 fmt:
 	@out=$$(gofmt -l .); if [ -n "$$out" ]; then \
@@ -32,6 +32,9 @@ lint:
 
 deps:
 	@sh scripts/depcheck.sh
+
+tempdirs:
+	@sh scripts/tempdircheck.sh
 
 test:
 	$(GO) test -race -shuffle=on -count=1 ./...
