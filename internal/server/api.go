@@ -29,6 +29,7 @@ func (s *server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+b+"/unread", s.apiUnread)
 	mux.HandleFunc("GET "+b+"/posts/{id}/history", s.apiHistory)
 	mux.HandleFunc("POST "+b+"/posts/{id}/reactions", s.apiReact)
+	s.routeThreadAPI(mux, b)
 	// Known paths with other methods.
 	for path, allow := range map[string]string{
 		"/api/boards":             "GET, HEAD, POST",
@@ -76,7 +77,7 @@ func (s *server) fail(w http.ResponseWriter, err error) {
 		s.Logf("agora: %v", err)
 		msg = "the server failed: " + msg
 	case http.StatusRequestEntityTooLarge:
-		msg = "the request is larger than 1 MiB"
+		msg = tooLarge(err)
 	}
 	writeError(w, code, msg)
 }
@@ -180,13 +181,25 @@ func (s *server) apiCreateBoard(w http.ResponseWriter, r *http.Request) {
 // filterParams reads the parameters that narrow lists of threads.
 func filterParams(r *http.Request) (post.Filter, error) {
 	q := r.URL.Query()
-	f := post.Filter{Tags: q["t"], Author: q.Get("author"), Limit: post.DefaultLimit}
+	f := post.Filter{Tags: q["t"], Author: q.Get("author"), State: q.Get("state"), Limit: post.DefaultLimit}
 	if n := q.Get("n"); n != "" {
 		v, err := strconv.Atoi(n)
 		if err != nil || v < 1 {
 			return f, post.Errorf(post.Invalid, "invalid n %q: want a number of at least 1", n)
 		}
 		f.Limit = v
+	}
+	if k := q.Get("skip"); k != "" {
+		v, err := strconv.Atoi(k)
+		if err != nil || v < 0 {
+			return f, post.Errorf(post.Invalid, "invalid skip %q: want a number of at least 0", k)
+		}
+		f.Skip = v
+	}
+	if f.State != "" {
+		if err := post.CheckState(f.State); err != nil {
+			return f, err
+		}
 	}
 	if _, err := post.Tags(f.Tags); err != nil {
 		return f, err

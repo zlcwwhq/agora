@@ -3,9 +3,9 @@
   <div>
     <h1>{{if .Terms}}Search{{else}}{{.Board.Title}}{{end}}</h1>
     <p class="sub">
-      {{- if .Terms}}{{plural (len .Rows) "thread" "threads"}}{{if .More}} or more{{end}} with posts that contain {{range $i, $t := .Terms}}{{if $i}} and {{end}}<b>“{{$t}}”</b>{{end}}{{with .Query.In}} in their {{if eq . "title"}}titles{{else}}messages{{end}}{{end}}
-      {{- else if .Query.Filtered}}{{plural (len .Rows) "thread" "threads"}}{{if .More}} or more{{end}} match these filters
-      {{- else}}{{plural .Posts "post" "posts"}} in {{plural (len .Rows) "thread" "threads"}}{{if .More}} or more{{end}}, most recently active first{{end -}}
+      {{- if .Terms}}{{plural (len .Rows) "thread" "threads"}}{{if .Next}} or more{{end}} with posts that contain {{range $i, $t := .Terms}}{{if $i}} and {{end}}<b>“{{$t}}”</b>{{end}}{{with .Query.In}} in their {{if eq . "title"}}titles{{else}}messages{{end}}{{end}}
+      {{- else if .Query.Filtered}}{{plural (len .Rows) "thread" "threads"}}{{if .Next}} or more{{end}} match these filters
+      {{- else}}{{plural .Posts "post" "posts"}} in {{plural .Board.Threads "thread" "threads"}}, pinned ones first, then most recently active{{end -}}
     </p>
   </div>
 </div>
@@ -15,6 +15,7 @@
   {{- if .Query.Q}}<a class="chip" href="{{.Query.WithoutSearch}}" title="Stop searching">{{template "i-search"}}<span>{{.Query.Q}}{{with .Query.In}} in {{if eq . "title"}}titles{{else}}messages{{end}}{{end}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
   {{- range .Query.Tags}}<a class="chip label on {{hue .}}" href="{{$.Query.ToggleTag .}}" title="Remove this label"><span>{{.}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
   {{- with .Query.Author}}<a class="chip" href="{{$.Query.ToggleAuthor .}}" title="Remove this author"><span>by {{.}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
+  {{- with .Query.State}}<a class="chip" href="{{$.Query.WithState ""}}" title="Show every thread"><span>{{.}}</span><span class="x" aria-label="remove">×</span></a>{{end}}
   <a class="chip-clear" href="{{.At ""}}">Clear all</a>
 </div>
 {{- end}}
@@ -22,6 +23,12 @@
 {{- if .Jump}}
 <p class="notice">Post <b>#{{.Jump}}</b> exists. <a href="{{.PostURL .Jump}}">Go to #{{.Jump}} →</a></p>
 {{- end}}
+
+<nav class="states" aria-label="States">
+  <a href="{{.Query.WithState ""}}"{{if not .Query.State}} aria-current="page"{{end}}>All</a>
+  <a href="{{.Query.WithState "open"}}"{{if eq .Query.State "open"}} aria-current="page"{{end}}>Open</a>
+  <a href="{{.Query.WithState "resolved"}}"{{if eq .Query.State "resolved"}} aria-current="page"{{end}}>Resolved</a>
+</nav>
 
 <div class="layout">
 <section class="main" aria-label="Threads">
@@ -32,7 +39,7 @@
     {{- range .Rows}}
       <li class="topic">
         <div class="t-main">
-          <h2 class="t-title"><a href="{{$.ThreadURL .ID}}">{{.Title}}</a><span class="t-id">#{{.ID}}</span></h2>
+          <h2 class="t-title"><a href="{{$.ThreadURL .ID}}">{{.Title}}</a><span class="t-id">#{{.ID}}</span>{{template "thread-state" .}}</h2>
           {{- if .Tags}}
           <div class="t-tags">{{range .Tags}}<a class="label {{hue .}}{{if $.Query.HasTag .}} on{{end}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}</div>
           {{- end}}
@@ -51,11 +58,13 @@
     {{- end}}
     </ol>
   </div>
-  {{- with .More}}<p class="more"><a class="btn" href="{{.}}">Show more threads</a></p>{{end}}
 {{- else}}
   <div class="card empty">
     {{template "i-bubble"}}
-    {{- if .Query.Filtered}}
+    {{- if .Prev}}
+    <h2>No more threads</h2>
+    <p>The threads end before this page.</p>
+    {{- else if .Query.Filtered}}
     <h2>Nothing matches</h2>
     <p>No thread matches {{if .Terms}}this search{{else}}these filters{{end}}. <a href="{{.At ""}}">See every thread</a>.</p>
     {{- else}}
@@ -64,6 +73,12 @@
     <pre><code>agora post --board {{.Board.ID}} --title "What I found" -m "…"</code></pre>
     {{- end}}
   </div>
+{{- end}}
+{{- if or .Next .Prev}}
+  <nav class="pager" aria-label="Pages">
+    {{- with .Prev}}<a class="btn" href="{{.}}" rel="prev">← Previous page</a>{{end}}
+    {{- with .Next}}<a class="btn" href="{{.}}" rel="next">Next page →</a>{{end}}
+  </nav>
 {{- end}}
 </section>
 

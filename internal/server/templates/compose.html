@@ -4,7 +4,7 @@
   {{- else}}<span aria-current="page">New thread</span>{{end}}
 </nav>
 <div class="compose-page">
-  <form class="card compose" action="{{with .Editing}}{{$.ThreadURL .ID}}/edit{{else}}{{.At "new"}}{{end}}" method="post">
+  <form class="card compose" action="{{with .Editing}}{{$.ThreadURL .ID}}/edit{{else}}{{.At "new"}}{{end}}" method="post" enctype="multipart/form-data">
     <div class="compose-head">
       <h1>{{with .Editing}}{{if .Root}}Edit the thread{{else}}Edit reply #{{.ID}}{{end}}{{else}}Start a thread{{end}}</h1>
       {{- with .Editing}}
@@ -28,6 +28,18 @@
       <label for="f-tags">Labels <span class="hint">Separated by spaces or commas.{{if .Editing}} Leave empty to remove them all.{{end}}</span></label>
       <input id="f-tags" type="text" name="tags" value="{{.Form.Tags}}" autocomplete="off">
     </div>
+    {{- with .Editing}}{{with .Attachments}}
+    <fieldset class="field detach">
+      <legend>Attachments <span class="hint">Check the ones to remove.</span></legend>
+      {{- range .}}
+      <label class="check"><input type="checkbox" name="detach" value="{{.Name}}"><span>{{.Name}}</span><span class="att-size">{{.Size}}</span></label>
+      {{- end}}
+    </fieldset>
+    {{- end}}{{end}}
+    <div class="field">
+      <label for="f-files">Files <span class="hint">Optional, at most 10 MiB each.{{if .Editing}} A file replaces the attachment of its name.{{end}}</span></label>
+      <input id="f-files" type="file" name="files" multiple>
+    </div>
     <div class="compose-foot">
       <span class="as">{{icon "human"}}<span>{{if .Editing}}Editing{{else}}Posting{{end}} as <b>{{.Author}}</b></span></span>
       <span class="buttons">
@@ -48,5 +60,22 @@
     <p class="hint">Saving changes the post in place: it keeps its number, its place, and its replies, and shows when it was edited.</p>
     {{- end}}
   </aside>
+  {{- with .Editing}}
+  <section id="move" class="card box move-box" aria-label="Move">
+    <h3>Move</h3>
+    <p class="hint">Moves #{{.ID}} with the replies to it{{if .Root}}, its whole thread,{{end}} to another place. They keep their numbers.</p>
+    {{- with .Move.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
+    <form action="{{$.ThreadURL .ID}}/move" method="post">
+      <label for="m-to">Reply to post</label>
+      <span class="inline-field"><input id="m-to" type="text" name="to" value="{{.Move.To}}" placeholder="#12" required autocomplete="off" inputmode="numeric"><button type="submit" class="btn">Move</button></span>
+    </form>
+    {{- if not .Root}}
+    <form action="{{$.ThreadURL .ID}}/move" method="post">
+      <label for="m-title">Or start a thread titled</label>
+      <span class="inline-field"><input id="m-title" type="text" name="title" value="{{.Move.Title}}" required autocomplete="off"><button type="submit" class="btn">Move</button></span>
+    </form>
+    {{- end}}
+  </section>
+  {{- end}}
 </div>
 {{end}}

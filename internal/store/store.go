@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +28,8 @@ import (
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// dir is the database's directory, where backups are made.
+	dir string
 }
 
 // Open opens the database at path, creating it and its schema if it doesn't
@@ -44,7 +47,7 @@ func Open(path string, now func() time.Time) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetConnMaxIdleTime(0)
 	db.SetConnMaxLifetime(0)
-	s := &Store{db: db, now: now}
+	s := &Store{db: db, now: now, dir: filepath.Dir(path)}
 	if err := s.ensureSchema(context.Background()); err != nil {
 		_ = db.Close()
 		if busy(err) {
@@ -315,6 +318,9 @@ func (s *Store) publish(ctx context.Context, who post.Identity, board string, to
 				return err
 			}
 			thread, replyTo = rootPK, toPK
+			if err := checkLocked(ctx, tx, who, board, pub.Thread); err != nil {
+				return err
+			}
 		}
 		if err := tx.QueryRowContext(ctx, "UPDATE boards SET last_n = last_n + 1 WHERE id = ? RETURNING last_n", board).Scan(&pub.ID); err != nil {
 			return err
@@ -468,6 +474,9 @@ func rows(ctx context.Context, q querier, query string, args ...any) ([]row, err
 		if err := readerFields(ctx, q, r); err != nil {
 			return nil, err
 		}
+		if r.Attachments, err = attachments(ctx, q, r.pk); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
@@ -520,6 +529,9 @@ func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id in
 		}
 		p := r.Post
 		if err := who.MayChange(p, "edit"); err != nil {
+			return err
+		}
+		if err := checkLocked(ctx, tx, who, board, p.Thread); err != nil {
 			return err
 		}
 		title, body := p.Title, p.Body
@@ -587,6 +599,9 @@ func (s *Store) Delete(ctx context.Context, who post.Identity, board string, id 
 			return err
 		}
 		if err := who.MayChange(r.Post, "delete"); err != nil {
+			return err
+		}
+		if err := checkLocked(ctx, tx, who, board, r.Thread); err != nil {
 			return err
 		}
 		out = post.Removed{ID: id, Thread: r.Thread, Removed: []int64{id}}
@@ -673,10 +688,11 @@ func thread(ctx context.Context, q querier, root int64) (threadInfo, error) {
 	var harness, session, node string
 	err := q.QueryRowContext(ctx, `SELECT r.board, r.n, r.title, r.harness, r.session, r.node, r.created,
 		(SELECT count(*) FROM posts c WHERE c.thread = r.pk),
-		l.n, l.created
+		l.n, l.created, r.state, r.pinned, r.locked
 		FROM posts r JOIN posts l ON l.pk = (SELECT max(pk) FROM posts m WHERE m.pk = r.pk OR m.thread = r.pk)
 		WHERE r.pk = ? AND r.thread IS NULL`, root).
-		Scan(&t.Board, &t.ID, &t.Title, &harness, &session, &node, &t.Created, &t.Replies, &t.last, &t.LastActivity)
+		Scan(&t.Board, &t.ID, &t.Title, &harness, &session, &node, &t.Created, &t.Replies, &t.last, &t.LastActivity,
+			&t.State, &t.Pinned, &t.Locked)
 	if err != nil {
 		return t, err
 	}
@@ -687,10 +703,21 @@ func thread(ctx context.Context, q querier, root int64) (threadInfo, error) {
 }
 
 // filter returns the conditions of f: on the author of the posts aliased as
-// alias, and on the tags of the thread whose root's key is threadExpr.
+// alias, and on the tags and the state of the thread whose root's key is
+// threadExpr.
 func filter(f post.Filter, alias, threadExpr string) (string, []any, error) {
 	var where strings.Builder
 	var args []any
+	if err := post.CheckSkip(f.Skip); err != nil {
+		return "", nil, err
+	}
+	if f.State != "" {
+		if err := post.CheckState(f.State); err != nil {
+			return "", nil, err
+		}
+		where.WriteString(" AND EXISTS (SELECT 1 FROM posts fs WHERE fs.pk = " + threadExpr + " AND fs.state = ?)")
+		args = append(args, f.State)
+	}
 	for _, tag := range f.Tags {
 		t, ok := post.NormalizeTag(tag)
 		if !ok {
@@ -722,7 +749,8 @@ func limit(f post.Filter) int {
 	return f.Limit
 }
 
-// List returns a board's threads by last activity, newest first.
+// List returns a page of a board's threads: pinned ones first, then by last
+// activity, newest first.
 func (s *Store) List(ctx context.Context, board string, f post.Filter) ([]post.Thread, error) {
 	where, args, err := filter(f, "r", "r.pk")
 	if err != nil {
@@ -734,8 +762,8 @@ func (s *Store) List(ctx context.Context, board string, f post.Filter) ([]post.T
 			return err
 		}
 		roots, err := column[int64](ctx, tx, `SELECT r.pk FROM posts r WHERE r.board = ? AND r.thread IS NULL`+where+`
-			ORDER BY (SELECT max(m.pk) FROM posts m WHERE m.pk = r.pk OR m.thread = r.pk) DESC
-			LIMIT ?`, append(append([]any{board}, args...), limit(f))...)
+			ORDER BY r.pinned DESC, (SELECT max(m.pk) FROM posts m WHERE m.pk = r.pk OR m.thread = r.pk) DESC
+			LIMIT ? OFFSET ?`, append(append([]any{board}, args...), limit(f), f.Skip)...)
 		if err != nil {
 			return err
 		}
@@ -752,8 +780,8 @@ func (s *Store) List(ctx context.Context, board string, f post.Filter) ([]post.T
 	return out, err
 }
 
-// Search returns a board's threads with posts that match q: threads whose
-// titles match first, then by last activity.
+// Search returns a page of a board's threads with posts that match q:
+// threads whose titles match first, then by last activity; pins don't count.
 func (s *Store) Search(ctx context.Context, board string, q post.Query) ([]post.Result, error) {
 	var terms []string
 	for _, t := range q.Terms {
@@ -846,7 +874,7 @@ func (s *Store) Search(ctx context.Context, board string, q post.Query) ([]post.
 		return cmp.Compare(b.info.last, a.info.last)
 	})
 	out := []post.Result{}
-	for _, r := range results {
+	for _, r := range results[min(q.Skip, len(results)):] {
 		if len(out) == limit(q.Filter) {
 			break
 		}

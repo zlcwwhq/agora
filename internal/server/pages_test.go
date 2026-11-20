@@ -206,7 +206,7 @@ func TestBoardListsThreadsAndFilters(t *testing.T) {
 	lacks(t, r, "冲突处理")
 	expect(t, s.get("/b/b/?q=nothing-matches-this"), 200, "Nothing matches", `<a href="/b/b/">See every thread</a>`)
 	expect(t, s.get("/b/b/?q=%232"), 200, "Go to #2", `href="/b/b/t/2#2"`)
-	expect(t, s.get("/b/b/?n=1"), 200, "Show more threads", `href="/b/b/?n=51"`)
+	expect(t, s.get("/b/b/?n=1"), 200, "Next page", `href="/b/b/?n=1&amp;skip=1"`)
 
 	for _, bad := range []string{"/b/b/?t=a+b", "/b/b/?n=0", "/b/b/?in=everything", "/b/b/?author=Bad/x"} {
 		expect(t, s.get(bad), 400, "Back to Board B")
@@ -499,7 +499,10 @@ func TestEditForms(t *testing.T) {
 		`<a class="btn" href="/b/b/t/1#1">Cancel</a>`)
 	r = s.get("/b/b/t/2/edit")
 	expect(t, r, 200, "Edit reply #2", "a reply", "in “Old title”", `<a href="/b/b/t/1#2">#1</a>`)
-	lacks(t, r, `name="title"`)
+	// The reply's edit form has no title, but the form that moves the reply
+	// to a new thread has.
+	lacks(t, r, `id="f-title"`)
+	expect(t, r, 200, `<input id="m-title" type="text" name="title"`)
 
 	// Every field is sent: empty tags remove them.
 	location(t, s.post("/b/b/t/1/edit", url.Values{"title": {"New title"}, "tags": {""}, "body": {"new body"}}), 303, "/b/b/t/1#1")

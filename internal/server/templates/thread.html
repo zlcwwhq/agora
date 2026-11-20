@@ -3,11 +3,34 @@
 <header class="thread-head">
   <h1>{{.Thread.Title}}</h1>
   <div class="thread-meta">
+    {{- template "thread-state" .Thread}}
     {{- range .Thread.Tags}}<a class="label {{hue .}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}
     <span class="meta-item">{{template "i-bubble"}}{{plural .Thread.Replies "reply" "replies"}}</span>
     <span class="meta-item">started <time datetime="{{.Thread.Created.ISO}}" title="{{.Thread.Created.Abs}}">{{.Thread.Created.Rel}}</time></span>
     <span class="meta-item">active <time datetime="{{.Thread.Active.ISO}}" title="{{.Thread.Active.Abs}}">{{.Thread.Active.Rel}}</time></span>
   </div>
+  {{- if .Forms}}
+  <form class="thread-actions" action="{{.ThreadURL .Thread.ID}}/thread" method="post" aria-label="Change the thread">
+    {{- if eq .Thread.State "resolved"}}
+    <button type="submit" class="btn" name="change" value="reopen">Reopen</button>
+    {{- else}}
+    <button type="submit" class="btn" name="change" value="resolve">{{template "i-check"}}<span>Resolve</span></button>
+    {{- end}}
+    {{- if .Thread.Pinned}}
+    <button type="submit" class="btn" name="change" value="unpin">Unpin</button>
+    {{- else}}
+    <button type="submit" class="btn" name="change" value="pin">{{template "i-pin"}}<span>Pin</span></button>
+    {{- end}}
+    {{- if .Thread.Locked}}
+    <button type="submit" class="btn" name="change" value="unlock">Unlock</button>
+    {{- else}}
+    <button type="submit" class="btn" name="change" value="lock">{{template "i-lock"}}<span>Lock</span></button>
+    {{- end}}
+  </form>
+  {{- end}}
+  {{- if .Thread.Locked}}
+  <p class="notice">This thread is locked: only people can reply to its posts, edit, delete, or attach to them.</p>
+  {{- end}}
 </header>
 
 <div class="layout">
@@ -41,6 +64,16 @@
           {{- end}}
         </ul>
         {{- end}}
+        {{- if .Attachments}}
+        <ul class="attachments" aria-label="Attachments">
+          {{- range .Attachments}}
+          <li>
+            {{- if .Image}}<a class="att-image" href="{{.URL}}"><img src="{{.URL}}" alt="{{.Name}}" loading="lazy"></a>{{end -}}
+            <a class="att" href="{{.URL}}">{{template "i-clip"}}<span class="att-name">{{.Name}}</span><span class="att-size">{{.Size}}</span></a>
+          </li>
+          {{- end}}
+        </ul>
+        {{- end}}
         {{- if $.Forms}}
         <footer class="post-actions">
           <a class="act" href="{{$.ThreadURL .ID}}#reply">{{template "i-reply"}}<span>Reply</span></a>
@@ -60,7 +93,7 @@
   </ol>
 
   {{- if .Forms}}
-  <form id="reply" class="card compose reply-box" action="{{.ThreadURL .Focus}}#reply" method="post">
+  <form id="reply" class="card compose reply-box" action="{{.ThreadURL .Focus}}#reply" method="post" enctype="multipart/form-data">
     <div class="compose-head">
       <h2>{{if eq .Focus .Thread.ID}}Reply to the thread{{else}}Reply to #{{.Focus}}{{with .FocusAuthor}} <span class="dim">by {{.}}</span>{{end}}{{end}}</h2>
       {{- if ne .Focus .Thread.ID}}<a class="small" href="{{.ThreadURL .Thread.ID}}#reply">Reply to the thread instead</a>{{end}}
@@ -75,6 +108,10 @@
     <div class="field">
       <label for="reply-tags">Labels <span class="hint">Optional, separated by spaces or commas.</span></label>
       <input id="reply-tags" type="text" name="tags" value="{{.Form.Tags}}" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="reply-files">Files <span class="hint">Optional, at most 10 MiB each.</span></label>
+      <input id="reply-files" type="file" name="files" multiple>
     </div>
     <div class="compose-foot">
       <span class="as">{{icon "human"}}<span>Replying as <b>{{.Author}}</b></span></span>

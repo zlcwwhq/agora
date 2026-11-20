@@ -28,6 +28,8 @@ type Post struct {
 	// Mentions are the body's, as Mention.String writes them.
 	Mentions  []string   `json:"mentions"`
 	Reactions []Reaction `json:"reactions"`
+	// Attachments are in the order of their names.
+	Attachments []Attachment `json:"attachments"`
 }
 
 // IsRoot reports whether p starts its thread.
@@ -43,6 +45,10 @@ type Thread struct {
 	LastActivity string   `json:"last_activity"`
 	Replies      int      `json:"replies"`
 	Tags         []string `json:"tags"`
+	// State is StateOpen or StateResolved.
+	State  string `json:"state"`
+	Pinned bool   `json:"pinned"`
+	Locked bool   `json:"locked"`
 }
 
 // Board is a board, as api/cli.md's <board> shape.
@@ -180,6 +186,10 @@ type Filter struct {
 	Author string
 	// Limit is the most threads to return.
 	Limit int
+	// State is StateOpen or StateResolved, or empty for every thread.
+	State string
+	// Skip is the number of threads of the order to leave out.
+	Skip int
 }
 
 // Query is a search.
