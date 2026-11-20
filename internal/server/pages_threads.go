@@ -71,6 +71,18 @@ type fileFields struct {
 	files  []upload
 	detach []string
 	move   moveForm
+	// refused says why the form's files can't be attached, in which case the
+	// form writes nothing and is shown again.
+	refused string
+}
+
+// refusedFiles returns why the form's files can't be attached, as the error
+// of a request that breaks a rule, or nil.
+func (f fileFields) refusedFiles() error {
+	if f.refused == "" {
+		return nil
+	}
+	return post.Errorf(post.Invalid, "%s", f.refused)
 }
 
 // withFiles lets a form that carries files, sent as multipart/form-data, be
@@ -112,8 +124,10 @@ func parseForm(r *http.Request) error {
 }
 
 // readFiles reads the files that a form sent, and the names of the
-// attachments that it detaches, into typed, answering the request, with
-// what was typed, if one isn't allowed.
+// attachments that it detaches, into typed. A file larger than an attachment
+// may be answers the request; a name that isn't allowed, or that two files
+// share, keeps the files out of typed and says why in its refused, for the
+// form to be shown again.
 func (p *pages) readFiles(w http.ResponseWriter, r *http.Request, typed form) (form, bool) {
 	typed.detach = r.PostForm["detach"]
 	if r.MultipartForm == nil {
@@ -137,8 +151,9 @@ func (p *pages) readFiles(w http.ResponseWriter, r *http.Request, typed form) (f
 			reason = fmt.Sprintf("Two files are named %s, but a post's attachments have different names.", fh.Filename)
 		}
 		if reason != "" {
-			p.failIn(w, r, nil, http.StatusBadRequest, reason, typed)
-			return form{}, false
+			typed.files = nil
+			typed.refused = reason + " Choose the files again."
+			return typed, true
 		}
 		named[fh.Filename] = true
 		data, err := readUpload(fh)

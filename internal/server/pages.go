@@ -380,7 +380,11 @@ func (p *pages) reply(w http.ResponseWriter, r *http.Request, b *post.Board, f f
 	if !ok {
 		return
 	}
-	pub, _, err := p.s.Store.Reply(r.Context(), p.s.Person, b.ID, id, post.NewReply{Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce})
+	var pub post.Published
+	err := f.refusedFiles()
+	if err == nil {
+		pub, _, err = p.s.Store.Reply(r.Context(), p.s.Person, b.ID, id, post.NewReply{Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce})
+	}
 	if err == nil {
 		err = p.attachFiles(r, b.ID, "replied", pub.ID, f)
 	}
@@ -405,9 +409,13 @@ func (p *pages) newForm(w http.ResponseWriter, r *http.Request, b *post.Board, _
 
 func (p *pages) newThread(w http.ResponseWriter, r *http.Request, b *post.Board, f form) {
 	f.HasTitle = true
-	pub, _, err := p.s.Store.Post(r.Context(), p.s.Person, b.ID, post.NewThread{
-		Title: f.Title, Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce,
-	})
+	var pub post.Published
+	err := f.refusedFiles()
+	if err == nil {
+		pub, _, err = p.s.Store.Post(r.Context(), p.s.Person, b.ID, post.NewThread{
+			Title: f.Title, Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce,
+		})
+	}
 	if err == nil {
 		err = p.attachFiles(r, b.ID, "posted", pub.ID, f)
 	}
@@ -470,7 +478,11 @@ func (p *pages) edit(w http.ResponseWriter, r *http.Request, b *post.Board, f fo
 	if _, ok := r.PostForm["body"]; ok {
 		e.Body = &f.Body
 	}
-	edited, err := p.s.Store.Edit(r.Context(), p.s.Person, b.ID, id, e)
+	var edited post.Post
+	err := f.refusedFiles()
+	if err == nil {
+		edited, err = p.s.Store.Edit(r.Context(), p.s.Person, b.ID, id, e)
+	}
 	if err == nil {
 		err = p.changeFiles(r, b.ID, id, f)
 	}
