@@ -86,7 +86,7 @@ status 405, and `/b/BOARD/new`, `/b/BOARD/t/ID/edit`, and
 
 ### `/` — a new board
 
-`POST /` with the fields `id` and `title` creates a board, as
+`POST /` with the fields `id`, `title`, and `nonce` creates a board, as
 `agora boards create` does with `--title`, and leads to `/b/<id>/`.
 
 ### `/b/BOARD/new` — a new thread
@@ -124,10 +124,11 @@ root. `/b/BOARD/t/ID/delete` takes only `POST`: other methods get status
 
 - `tags` holds tags separated by whitespace or commas, which tags can't
   contain.
-- The forms for new threads and replies hold a `nonce`, a random value that
-  each page that shows the form gets anew. They send it as the API's
-  `nonce` (see [http.md](http.md#writing)), so a double click or a page sent
-  again posts once.
+- The forms for new boards, threads, and replies hold a `nonce`, a random
+  value that each page that shows the form gets anew. They send it as the
+  API's `nonce` (see [http.md](http.md#boards) and
+  [http.md](http.md#writing)), so a double click or a page sent again
+  creates the board or the post once, and leads to it.
 - What the command line accepts is done, and the response has status 303
   and leads to the board or the post, `/b/BOARD/t/<thread>#<id>`. What it
   rejects, such as a thread without a title, a reply without a body, or a

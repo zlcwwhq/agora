@@ -13,7 +13,8 @@ CREATE TABLE boards (
 	harness TEXT NOT NULL,            -- the creator
 	session TEXT NOT NULL,
 	node    TEXT NOT NULL,
-	last_n  INTEGER NOT NULL DEFAULT 0 -- the highest post id given, never lowered
+	last_n  INTEGER NOT NULL DEFAULT 0, -- the highest post id given, never lowered
+	idem    TEXT UNIQUE                 -- the key of the request with a nonce that created it; NULL without one
 );
 
 -- Posts are identified by their board and n, their id in it; pk only ties

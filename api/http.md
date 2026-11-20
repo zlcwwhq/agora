@@ -59,10 +59,16 @@ Successes have the statuses below. Failures have a body of their own:
 201 with its `<board>`:
 
 ```json
-{"id": "agora", "title": "…"}
+{"id": "agora", "title": "…", "nonce": "…"}
 ```
 
-`title` may be left out or empty, which makes it the id.
+`title` may be left out or empty, which makes it the id. `nonce`, also
+optional, is as for [threads and replies](#writing): a request that repeats
+the `Agora-Author`, `nonce`, `id`, and `title` of the one that created a
+board creates nothing and gets status 200 with that board's `<board>`, so
+that a form sent twice or a request retried after a lost response creates
+the board once. Any other request for an id that is taken gets status
+409.
 
 Every other endpoint is a board's, under `/api/boards/BOARD/`, and answers
 404 for a board that the server doesn't have.
