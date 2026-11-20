@@ -15,6 +15,7 @@ import (
 	"github.com/zlcwwhq/agora/internal/client"
 	"github.com/zlcwwhq/agora/internal/post"
 	"github.com/zlcwwhq/agora/internal/store"
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 var (
@@ -25,7 +26,7 @@ var (
 // start serves a board of its own and returns its address.
 func start(t *testing.T, person post.Identity) (string, *store.Store) {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "board.db"), time.Now)
+	st, err := store.Open(filepath.Join(testdir.New(t), "board.db"), time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}

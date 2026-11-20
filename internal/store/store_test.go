@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zlcwwhq/agora/internal/post"
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 var (
@@ -30,7 +31,7 @@ func (c *clock) now() time.Time {
 func open(t *testing.T) (*Store, *clock) {
 	t.Helper()
 	c := &clock{t: time.Date(2026, 11, 20, 9, 0, 0, 0, time.FixedZone("CET", 3600))}
-	s, err := Open(filepath.Join(t.TempDir(), "board.db"), c.now)
+	s, err := Open(filepath.Join(testdir.New(t), "board.db"), c.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +401,7 @@ func TestListSearchTags(t *testing.T) {
 }
 
 func TestOpenLocksAndChecksVersion(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "board.db")
+	path := filepath.Join(testdir.New(t), "board.db")
 	s, err := Open(path, time.Now)
 	if err != nil {
 		t.Fatal(err)
@@ -515,7 +516,7 @@ func TestBoards(t *testing.T) {
 }
 
 func TestRefusesDevelopmentSchema(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "board.db")
+	path := filepath.Join(testdir.New(t), "board.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)

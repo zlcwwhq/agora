@@ -15,6 +15,7 @@ import (
 	"github.com/zlcwwhq/agora/internal/client"
 	"github.com/zlcwwhq/agora/internal/post"
 	"github.com/zlcwwhq/agora/internal/store"
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 // rawResponse is what a request of rawAPI got.
@@ -282,7 +283,7 @@ func TestAPIBackup(t *testing.T) {
 	if r.status != 200 || r.header.Get("Content-Type") != "application/vnd.sqlite3" {
 		t.Fatalf("GET /api/backup = %d %v", r.status, r.header)
 	}
-	path := filepath.Join(t.TempDir(), "copy.db")
+	path := filepath.Join(testdir.New(t), "copy.db")
 	var buf bytes.Buffer
 	n, err := client.New(base, "", codex).Backup(ctx, &buf)
 	if err != nil || n != int64(buf.Len()) || n != int64(len(r.body)) {
