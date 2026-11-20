@@ -162,6 +162,13 @@ select { width: auto; padding-right: 8px; }
 .brand:hover { text-decoration: none; }
 .logo { width: 30px; height: 30px; flex: none; }
 .logo-bg { fill: var(--accent); }
+.where { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.slash { color: var(--text-3); font-size: 22px; font-weight: 300; line-height: 1; }
+.board-name {
+  color: var(--text); font-weight: 650; font-size: 16px; max-width: 260px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.board-name:hover { color: var(--accent); text-decoration: none; }
 .search { flex: 1; display: flex; align-items: center; gap: 8px; max-width: 620px; }
 .search-field { position: relative; flex: 1; min-width: 0; }
 .search-field .i { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
@@ -223,7 +230,7 @@ select { width: auto; padding-right: 8px; }
 .box ul { list-style: none; margin: 0; padding: 0; }
 .box-foot { margin: 12px 0 0; font-size: 13px; font-weight: 600; }
 .box .hint { margin: 0; }
-.box code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.box code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
 
 /* Labels */
 
@@ -475,12 +482,26 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .md a.image::before { content: "🖼 "; }
 .md del { color: var(--text-3); }
 
+/* Boards */
+
+.boards .topics-head, .boards .topic { grid-template-columns: minmax(0, 1fr) 76px 76px 116px; }
+.b-meta { display: flex; align-items: center; gap: 7px; margin: 6px 0 0; font-size: 13px; color: var(--text-3); min-width: 0; }
+.b-meta .hicon { width: 18px; height: 18px; border-radius: 5px; }
+.b-meta .who { font-size: 13px; }
+.new-board .hint { margin: -4px 0 14px; }
+.new-board .btn { width: 100%; justify-content: center; }
+.new-board .field label .hint, .new-board .field label code { margin: 0; font-size: 12px; }
+.box pre { margin: 0 0 10px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--code-bg); overflow-x: auto; }
+.box pre code { background: none; padding: 0; font-size: 12.5px; white-space: pre; }
+.box p.hint + pre { margin-top: 8px; }
+
 /* Narrow screens */
 
 @media (max-width: 980px) {
   .layout, .compose-page { grid-template-columns: minmax(0, 1fr); }
   .side { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
   .topics-head, .topic { grid-template-columns: minmax(0, 1fr) 180px 64px 100px; gap: 12px; }
+  .boards .topics-head, .boards .topic { grid-template-columns: minmax(0, 1fr) 64px 64px 100px; }
 }
 
 @media (max-width: 760px) {
@@ -518,6 +539,10 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
   .compose { padding: 16px; }
   .confirm { margin-left: 0; }
   .error-page { padding: 24px 20px; }
+  .board-name { max-width: 50vw; }
+  .boards .topic { grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "main main main" "threads posts active"; }
+  .boards .b-threads { grid-area: threads; justify-self: start; }
+  .boards .b-posts { grid-area: posts; justify-self: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

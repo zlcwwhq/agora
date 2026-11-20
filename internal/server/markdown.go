@@ -41,14 +41,19 @@ var markdown = goldmark.New(
 // the server stored them: only those #N become links.
 var refsKey = parser.NewContextKey()
 
-// render renders body as HTML, linking the references in refs.
-func render(body string, refs []int64) (template.HTML, error) {
+// boardKey holds the id of the board of the posts that a body refers to.
+var boardKey = parser.NewContextKey()
+
+// render renders body, a post's on board, as HTML, linking the references
+// in refs.
+func render(body, board string, refs []int64) (template.HTML, error) {
 	set := make(map[int64]bool, len(refs))
 	for _, id := range refs {
 		set[id] = true
 	}
 	pc := parser.NewContext()
 	pc.Set(refsKey, set)
+	pc.Set(boardKey, board)
 	var buf bytes.Buffer
 	if err := markdown.Convert([]byte(body), &buf, parser.WithContext(pc)); err != nil {
 		return "", err
@@ -66,6 +71,8 @@ var kindRef = ast.NewNodeKind("Ref")
 type refNode struct {
 	ast.BaseInline
 	ID int64
+	// Board is the board of the post referred to, and of the body.
+	Board string
 }
 
 func (n *refNode) Kind() ast.NodeKind { return kindRef }
@@ -95,8 +102,12 @@ func (refParser) Parse(_ ast.Node, block text.Reader, pc parser.Context) ast.Nod
 	if refs, _ := pc.Get(refsKey).(map[int64]bool); !refs[id] {
 		return nil
 	}
+	board, _ := pc.Get(boardKey).(string)
+	if !post.ValidBoard(board) {
+		return nil
+	}
 	block.Advance(n)
-	return &refNode{ID: id}
+	return &refNode{ID: id, Board: board}
 }
 
 // refRenderer renders references as links to their posts, or as text within
@@ -109,12 +120,13 @@ func (refRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 			return ast.WalkContinue, nil
 		}
 		n := node.(*refNode)
-		// Ids are digits, which need no escaping.
+		// Ids are digits, and boards' ids lowercase letters, digits, and
+		// '-', which need no escaping.
 		id := strconv.FormatInt(n.ID, 10)
 		if inLink(n) {
 			_, _ = w.WriteString("#" + id)
 		} else {
-			_, _ = w.WriteString(`<a href="` + postURL(n.ID) + `" class="ref">#` + id + `</a>`)
+			_, _ = w.WriteString(`<a href="` + inThread(n.Board, n.ID, n.ID) + `" class="ref">#` + id + `</a>`)
 		}
 		return ast.WalkContinue, nil
 	})

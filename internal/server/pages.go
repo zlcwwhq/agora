@@ -51,7 +51,7 @@ func newPages(s *server) *pages {
 func parseTemplates() map[string]*template.Template {
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(files, "templates/layout.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"threads", "thread", "tags", "compose", "error"} {
+	for _, name := range []string{"boards", "threads", "thread", "tags", "compose", "error"} {
 		t := template.Must(layout.Clone())
 		out[name] = template.Must(t.ParseFS(files, "templates/"+name+".html"))
 	}
@@ -62,16 +62,22 @@ func parseTemplates() map[string]*template.Template {
 type handlers map[string]http.HandlerFunc
 
 func (p *pages) route(mux *http.ServeMux) {
-	mux.HandleFunc("/{$}", p.handle(handlers{http.MethodGet: p.threads}))
-	mux.HandleFunc("/tags", p.handle(handlers{http.MethodGet: p.tags}))
-	thread := handlers{http.MethodGet: p.thread}
+	home := handlers{http.MethodGet: p.boards}
+	thread := handlers{http.MethodGet: p.inBoard(p.thread)}
 	if p.forms {
-		thread[http.MethodPost] = p.reply
-		mux.HandleFunc("/new", p.handle(handlers{http.MethodGet: p.newForm, http.MethodPost: p.newThread}))
-		mux.HandleFunc("/t/{id}/edit", p.handle(handlers{http.MethodGet: p.editForm, http.MethodPost: p.edit}))
-		mux.HandleFunc("/t/{id}/delete", p.handle(handlers{http.MethodPost: p.remove}))
+		home[http.MethodPost] = p.createBoard
+		thread[http.MethodPost] = p.inBoard(p.reply)
+		mux.HandleFunc("/b/{board}/new", p.handle(handlers{http.MethodGet: p.inBoard(p.newForm), http.MethodPost: p.inBoard(p.newThread)}))
+		mux.HandleFunc("/b/{board}/t/{id}/edit", p.handle(handlers{http.MethodGet: p.inBoard(p.editForm), http.MethodPost: p.inBoard(p.edit)}))
+		mux.HandleFunc("/b/{board}/t/{id}/delete", p.handle(handlers{http.MethodPost: p.inBoard(p.remove)}))
 	}
-	mux.HandleFunc("/t/{id}", p.handle(thread))
+	mux.HandleFunc("/{$}", p.handle(home))
+	// Registered so that its redirect has the pages' headers, rather than
+	// the one that ServeMux would give.
+	mux.HandleFunc("/b/{board}", p.handle(handlers{http.MethodGet: p.toBoard}))
+	mux.HandleFunc("/b/{board}/{$}", p.handle(handlers{http.MethodGet: p.inBoard(p.threads)}))
+	mux.HandleFunc("/b/{board}/tags", p.handle(handlers{http.MethodGet: p.inBoard(p.tags)}))
+	mux.HandleFunc("/b/{board}/t/{id}", p.handle(thread))
 	mux.HandleFunc("/static/", p.handle(handlers{http.MethodGet: p.file}))
 	mux.HandleFunc("/", p.handle(handlers{}))
 }
@@ -106,7 +112,7 @@ func (p *pages) handle(hs handlers) http.HandlerFunc {
 		f := hs[method]
 		if f == nil {
 			h.Set("Allow", strings.Join(allow, ", "))
-			msg := "This page only shows the board: agents post with the agora command."
+			msg := "This page only shows the boards: agents write with the agora command."
 			if hs[http.MethodPost] != nil {
 				msg = "This address takes its form's POST."
 			}
@@ -130,11 +136,62 @@ func (p *pages) file(w http.ResponseWriter, r *http.Request) {
 	p.static.ServeHTTP(w, r)
 }
 
+// boardHandler handles an address within a board: b is the board that the
+// address names, and f what the form sent, for a POST.
+type boardHandler func(w http.ResponseWriter, r *http.Request, b *post.Board, f form)
+
+// inBoard returns the handler of an address within a board: it answers an
+// address whose board isn't an id with 400, and one whose board the server
+// doesn't have with 404, with what a form sent, so that it isn't lost.
+func (p *pages) inBoard(h boardHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var f form
+		if r.Method == http.MethodPost {
+			var ok bool
+			if f, ok = p.readForm(w, r); !ok {
+				return
+			}
+		}
+		id := r.PathValue("board")
+		if err := post.CheckBoard(id); err != nil {
+			p.failIn(w, r, nil, http.StatusBadRequest, sentence(err.Error()), f)
+			return
+		}
+		b, err := p.s.Store.Board(r.Context(), id)
+		if post.KindOf(err) == post.NotFound {
+			p.failIn(w, r, nil, http.StatusNotFound, fmt.Sprintf("There is no board “%s” on this server.", id), f)
+			return
+		}
+		if err != nil {
+			p.boardFailed(w, r, nil, err, f)
+			return
+		}
+		h(w, r, &b, f)
+	}
+}
+
+// toBoard leads from /b/BOARD to the board's threads.
+func (p *pages) toBoard(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("board")
+	if err := post.CheckBoard(id); err != nil {
+		p.failIn(w, r, nil, http.StatusBadRequest, sentence(err.Error()), form{})
+		return
+	}
+	to := boardURL(id, "")
+	if r.URL.RawQuery != "" {
+		to += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, to, http.StatusMovedPermanently)
+}
+
 // base is what every page's layout shows.
 type base struct {
-	// Nav is the current section: threads, tags, new, or empty.
+	// Nav is the current section: boards, threads, tags, new, or empty.
 	Nav, Title string
-	// Query fills the search form.
+	// Board is the board that the page belongs to, or nil for pages of no
+	// board.
+	Board *post.Board
+	// Query fills the board's search form.
 	Query query
 	// Forms says whether pages offer forms, which act as Author.
 	Forms   bool
@@ -142,12 +199,36 @@ type base struct {
 	Version string
 }
 
-func (p *pages) base(nav, title string, q query) base {
-	b := base{Nav: nav, Title: title, Query: q, Forms: p.forms, Version: p.s.Version}
-	if p.forms {
-		b.Author = p.s.Person.Author()
+// base returns what a page's layout shows; q's board becomes b's.
+func (p *pages) base(b *post.Board, nav, title string, q query) base {
+	if b != nil {
+		q.Board = b.ID
 	}
-	return b
+	v := base{Nav: nav, Title: title, Board: b, Query: q, Forms: p.forms, Version: p.s.Version}
+	if p.forms {
+		v.Author = p.s.Person.Author()
+	}
+	return v
+}
+
+// At returns the address of path within the page's board.
+func (b base) At(path string) string { return boardURL(b.Board.ID, path) }
+
+// ThreadURL returns the address of the page of the thread that contains id.
+func (b base) ThreadURL(id int64) string { return fmt.Sprintf("/b/%s/t/%d", b.Board.ID, id) }
+
+// InThread returns the address of post id within the page of its thread.
+func (b base) InThread(thread, id int64) string { return inThread(b.Board.ID, thread, id) }
+
+// PostURL returns the address of post id in its thread.
+func (b base) PostURL(id int64) string { return inThread(b.Board.ID, id, id) }
+
+// boardURL is the address of path within a board.
+func boardURL(board, path string) string { return "/b/" + board + "/" + path }
+
+// inThread is the address of a post within the page of its thread.
+func inThread(board string, thread, id int64) string {
+	return fmt.Sprintf("/b/%s/t/%d#%d", board, thread, id)
 }
 
 // form is what a form holds: what was typed, why it was refused, and the
@@ -183,49 +264,83 @@ func (p *pages) readForm(w http.ResponseWriter, r *http.Request) (form, bool) {
 	return form{Title: f.Get("title"), Tags: f.Get("tags"), Body: f.Get("body"), Nonce: f.Get("nonce"), HasTitle: hasTitle}, true
 }
 
-// pathID returns the post that the address names, answering the request if
-// it isn't an id.
-func (p *pages) pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+// pathID returns the post that the address names, answering the request,
+// with what its form held, if it isn't an id.
+func (p *pages) pathID(w http.ResponseWriter, r *http.Request, b *post.Board, f form) (int64, bool) {
 	raw := r.PathValue("id")
 	id, err := post.ParseID(raw)
 	if err != nil {
-		p.fail(w, r, http.StatusBadRequest, fmt.Sprintf("%q isn't a post id, such as 12.", raw))
+		p.failIn(w, r, b, http.StatusBadRequest, fmt.Sprintf("%q isn't a post id, such as 12.", raw), f)
 		return 0, false
 	}
 	return id, true
 }
 
-// postURL is the address of a post in its thread.
-func postURL(id int64) string { return fmt.Sprintf("/t/%d#%d", id, id) }
+func (p *pages) boards(w http.ResponseWriter, r *http.Request) {
+	p.showBoards(w, r, http.StatusOK, boardForm{})
+}
 
-// inThread is the address of a post within the page of its thread.
-func inThread(thread, id int64) string { return fmt.Sprintf("/t/%d#%d", thread, id) }
-
-func (p *pages) threads(w http.ResponseWriter, r *http.Request) {
-	q, bad := parseQuery(r.URL.Query())
-	if bad != "" {
-		p.fail(w, r, http.StatusBadRequest, bad)
+// showBoards shows every board, with the form that creates one holding f.
+func (p *pages) showBoards(w http.ResponseWriter, r *http.Request, status int, f boardForm) {
+	bs, err := p.s.Store.Boards(r.Context())
+	if err != nil {
+		p.boardFailed(w, r, nil, err, form{Title: f.Title})
 		return
 	}
-	v, err := p.threadsView(r, q)
+	v := boardsView{base: p.base(nil, "boards", "Boards", query{}), Form: f}
+	for _, b := range bs {
+		v.Boards = append(v.Boards, p.boardRow(b))
+		v.Posts += b.Posts
+	}
+	p.render(w, r, status, "boards", v)
+}
+
+func (p *pages) createBoard(w http.ResponseWriter, r *http.Request) {
+	typed, ok := p.readForm(w, r)
+	if !ok {
+		return
+	}
+	f := boardForm{ID: r.PostForm.Get("id"), Title: typed.Title}
+	b, err := p.s.Store.CreateBoard(r.Context(), p.s.Person, post.NewBoard{ID: f.ID, Title: f.Title})
+	if k := post.KindOf(err); k == post.Invalid || k == post.Conflict {
+		f.Reason = sentence(err.Error())
+		p.showBoards(w, r, http.StatusBadRequest, f)
+		return
+	}
 	if err != nil {
-		p.boardFailed(w, r, err, form{})
+		p.boardFailed(w, r, nil, err, form{Title: f.Title})
+		return
+	}
+	http.Redirect(w, r, boardURL(b.ID, ""), http.StatusSeeOther)
+}
+
+func (p *pages) threads(w http.ResponseWriter, r *http.Request, b *post.Board, _ form) {
+	q, bad := parseQuery(b.ID, r.URL.Query())
+	if bad != "" {
+		p.failIn(w, r, b, http.StatusBadRequest, bad, form{})
+		return
+	}
+	v, err := p.threadsView(r, b, q)
+	if err != nil {
+		p.boardFailed(w, r, b, err, form{})
 		return
 	}
 	p.render(w, r, http.StatusOK, "threads", v)
 }
 
-func (p *pages) tags(w http.ResponseWriter, r *http.Request) {
-	tags, err := p.s.Board.Tags(r.Context())
+func (p *pages) tags(w http.ResponseWriter, r *http.Request, b *post.Board, _ form) {
+	tags, err := p.s.Store.Tags(r.Context(), b.ID)
 	if err != nil {
-		p.boardFailed(w, r, err, form{})
+		p.boardFailed(w, r, b, err, form{})
 		return
 	}
-	p.render(w, r, http.StatusOK, "tags", tagsView{base: p.base("tags", "Labels", query{}), Tags: tagRows(tags, query{})})
+	v := tagsView{base: p.base(b, "tags", "Labels", query{})}
+	v.Tags = tagRows(tags, v.Query)
+	p.render(w, r, http.StatusOK, "tags", v)
 }
 
-func (p *pages) thread(w http.ResponseWriter, r *http.Request) {
-	id, ok := p.pathID(w, r)
+func (p *pages) thread(w http.ResponseWriter, r *http.Request, b *post.Board, _ form) {
+	id, ok := p.pathID(w, r, b, form{})
 	if !ok {
 		return
 	}
@@ -233,108 +348,96 @@ func (p *pages) thread(w http.ResponseWriter, r *http.Request) {
 	if p.forms {
 		f.Nonce = newNonce()
 	}
-	p.showThread(w, r, http.StatusOK, id, f)
+	p.showThread(w, r, b, http.StatusOK, id, f)
 }
 
 // showThread shows the thread that contains id, with the reply form f.
-func (p *pages) showThread(w http.ResponseWriter, r *http.Request, status int, id int64, f form) {
-	show, err := p.s.Board.Show(r.Context(), id)
+func (p *pages) showThread(w http.ResponseWriter, r *http.Request, b *post.Board, status int, id int64, f form) {
+	show, err := p.s.Store.Show(r.Context(), b.ID, id)
 	if err != nil {
-		p.boardFailed(w, r, err, f)
+		p.boardFailed(w, r, b, err, f)
 		return
 	}
-	v, err := p.threadView(show)
+	v, err := p.threadView(b, show)
 	if err != nil {
-		p.boardFailed(w, r, err, f)
+		p.boardFailed(w, r, b, err, f)
 		return
 	}
 	v.Form = f
 	p.render(w, r, status, "thread", v)
 }
 
-func (p *pages) reply(w http.ResponseWriter, r *http.Request) {
-	id, ok := p.pathID(w, r)
+func (p *pages) reply(w http.ResponseWriter, r *http.Request, b *post.Board, f form) {
+	id, ok := p.pathID(w, r, b, f)
 	if !ok {
 		return
 	}
-	f, ok := p.readForm(w, r)
-	if !ok {
-		return
-	}
-	pub, _, err := p.s.Board.Reply(r.Context(), p.s.Person, id, post.NewReply{Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce})
+	pub, _, err := p.s.Store.Reply(r.Context(), p.s.Person, b.ID, id, post.NewReply{Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce})
 	if post.KindOf(err) == post.Invalid {
 		f.Reason = sentence(err.Error())
-		p.showThread(w, r, http.StatusBadRequest, id, f)
+		p.showThread(w, r, b, http.StatusBadRequest, id, f)
 		return
 	}
 	if err != nil {
-		p.boardFailed(w, r, err, f)
+		p.boardFailed(w, r, b, err, f)
 		return
 	}
-	http.Redirect(w, r, inThread(pub.Thread, pub.ID), http.StatusSeeOther)
+	http.Redirect(w, r, inThread(b.ID, pub.Thread, pub.ID), http.StatusSeeOther)
 }
 
-func (p *pages) newForm(w http.ResponseWriter, r *http.Request) {
+func (p *pages) newForm(w http.ResponseWriter, r *http.Request, b *post.Board, _ form) {
 	p.render(w, r, http.StatusOK, "compose", composeView{
-		base: p.base("new", "New thread", query{}),
+		base: p.base(b, "new", "New thread", query{}),
 		Form: form{Nonce: newNonce(), HasTitle: true},
 	})
 }
 
-func (p *pages) newThread(w http.ResponseWriter, r *http.Request) {
-	f, ok := p.readForm(w, r)
-	if !ok {
-		return
-	}
+func (p *pages) newThread(w http.ResponseWriter, r *http.Request, b *post.Board, f form) {
 	f.HasTitle = true
-	pub, _, err := p.s.Board.Post(r.Context(), p.s.Person, post.NewThread{
+	pub, _, err := p.s.Store.Post(r.Context(), p.s.Person, b.ID, post.NewThread{
 		Title: f.Title, Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce,
 	})
 	if post.KindOf(err) == post.Invalid {
 		f.Reason = sentence(err.Error())
-		p.render(w, r, http.StatusBadRequest, "compose", composeView{base: p.base("new", "New thread", query{}), Form: f})
+		p.render(w, r, http.StatusBadRequest, "compose", composeView{base: p.base(b, "new", "New thread", query{}), Form: f})
 		return
 	}
 	if err != nil {
-		p.boardFailed(w, r, err, f)
+		p.boardFailed(w, r, b, err, f)
 		return
 	}
-	http.Redirect(w, r, inThread(pub.Thread, pub.ID), http.StatusSeeOther)
+	http.Redirect(w, r, inThread(b.ID, pub.Thread, pub.ID), http.StatusSeeOther)
 }
 
-func (p *pages) editForm(w http.ResponseWriter, r *http.Request) {
-	id, ok := p.pathID(w, r)
+func (p *pages) editForm(w http.ResponseWriter, r *http.Request, b *post.Board, _ form) {
+	id, ok := p.pathID(w, r, b, form{})
 	if !ok {
 		return
 	}
-	cur, err := p.s.Board.Get(r.Context(), id)
+	cur, err := p.s.Store.Get(r.Context(), b.ID, id)
 	if err != nil {
-		p.boardFailed(w, r, err, form{})
+		p.boardFailed(w, r, b, err, form{})
 		return
 	}
 	f := form{Title: cur.Title, Tags: strings.Join(cur.Tags, " "), Body: cur.Body, HasTitle: cur.IsRoot()}
-	p.showEdit(w, r, http.StatusOK, cur, f)
+	p.showEdit(w, r, b, http.StatusOK, cur, f)
 }
 
 // showEdit shows the form that edits cur, holding f.
-func (p *pages) showEdit(w http.ResponseWriter, r *http.Request, status int, cur post.Post, f form) {
-	v := composeView{base: p.base("", fmt.Sprintf("Edit #%d", cur.ID), query{}), Form: f, Editing: &editing{
+func (p *pages) showEdit(w http.ResponseWriter, r *http.Request, b *post.Board, status int, cur post.Post, f form) {
+	v := composeView{base: p.base(b, "", fmt.Sprintf("Edit #%d", cur.ID), query{}), Form: f, Editing: &editing{
 		ID: cur.ID, Thread: cur.Thread, Root: cur.IsRoot(), Author: cur.Author, Harness: cur.Harness,
 	}}
 	if !cur.IsRoot() {
-		if show, err := p.s.Board.Show(r.Context(), cur.Thread); err == nil {
+		if show, err := p.s.Store.Show(r.Context(), b.ID, cur.Thread); err == nil {
 			v.Editing.ThreadTitle = show.Thread.Title
 		}
 	}
 	p.render(w, r, status, "compose", v)
 }
 
-func (p *pages) edit(w http.ResponseWriter, r *http.Request) {
-	id, ok := p.pathID(w, r)
-	if !ok {
-		return
-	}
-	f, ok := p.readForm(w, r)
+func (p *pages) edit(w http.ResponseWriter, r *http.Request, b *post.Board, f form) {
+	id, ok := p.pathID(w, r, b, f)
 	if !ok {
 		return
 	}
@@ -352,43 +455,40 @@ func (p *pages) edit(w http.ResponseWriter, r *http.Request) {
 	if _, ok := r.PostForm["body"]; ok {
 		e.Body = &f.Body
 	}
-	edited, err := p.s.Board.Edit(r.Context(), p.s.Person, id, e)
+	edited, err := p.s.Store.Edit(r.Context(), p.s.Person, b.ID, id, e)
 	if post.KindOf(err) == post.Invalid {
-		cur, gerr := p.s.Board.Get(r.Context(), id)
+		cur, gerr := p.s.Store.Get(r.Context(), b.ID, id)
 		if gerr != nil {
-			p.boardFailed(w, r, gerr, f)
+			p.boardFailed(w, r, b, gerr, f)
 			return
 		}
 		f.Reason = sentence(err.Error())
 		f.HasTitle = cur.IsRoot()
-		p.showEdit(w, r, http.StatusBadRequest, cur, f)
+		p.showEdit(w, r, b, http.StatusBadRequest, cur, f)
 		return
 	}
 	if err != nil {
-		p.boardFailed(w, r, err, f)
+		p.boardFailed(w, r, b, err, f)
 		return
 	}
-	http.Redirect(w, r, inThread(edited.Thread, edited.ID), http.StatusSeeOther)
+	http.Redirect(w, r, inThread(b.ID, edited.Thread, edited.ID), http.StatusSeeOther)
 }
 
-func (p *pages) remove(w http.ResponseWriter, r *http.Request) {
-	id, ok := p.pathID(w, r)
+func (p *pages) remove(w http.ResponseWriter, r *http.Request, b *post.Board, _ form) {
+	id, ok := p.pathID(w, r, b, form{})
 	if !ok {
 		return
 	}
-	if _, ok := p.readForm(w, r); !ok {
-		return
-	}
-	removed, err := p.s.Board.Delete(r.Context(), p.s.Person, id)
+	removed, err := p.s.Store.Delete(r.Context(), p.s.Person, b.ID, id)
 	if err != nil {
-		p.boardFailed(w, r, err, form{})
+		p.boardFailed(w, r, b, err, form{})
 		return
 	}
 	if removed.ID == removed.Thread {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, boardURL(b.ID, ""), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, inThread(removed.Thread, removed.Thread), http.StatusSeeOther)
+	http.Redirect(w, r, inThread(b.ID, removed.Thread, removed.Thread), http.StatusSeeOther)
 }
 
 // errorView is the data of the error page.
@@ -400,30 +500,35 @@ type errorView struct {
 	Typed form
 }
 
-// fail shows the error page.
+// fail shows the error page of an address that belongs to no board.
 func (p *pages) fail(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	p.failTyped(w, r, status, msg, form{})
+	p.failIn(w, r, nil, status, msg, form{})
 }
 
-func (p *pages) failTyped(w http.ResponseWriter, r *http.Request, status int, msg string, typed form) {
+// failIn shows the error page within board b, or within none if b is nil,
+// with what a refused form held.
+func (p *pages) failIn(w http.ResponseWriter, r *http.Request, b *post.Board, status int, msg string, typed form) {
 	p.render(w, r, status, "error", errorView{
-		base:   p.base("", http.StatusText(status), query{}),
+		base:   p.base(b, "", http.StatusText(status), query{}),
 		Status: status, Text: msg, Typed: typed,
 	})
 }
 
-// boardFailed shows an error of the board, with what a form held.
-func (p *pages) boardFailed(w http.ResponseWriter, r *http.Request, err error, typed form) {
+// boardFailed shows an error of the store within board b, or within none
+// if b is nil, with what a form held.
+func (p *pages) boardFailed(w http.ResponseWriter, r *http.Request, b *post.Board, err error, typed form) {
 	switch post.KindOf(err) {
 	case post.NotFound:
-		p.failTyped(w, r, http.StatusNotFound, sentence(err.Error()), typed)
+		p.failIn(w, r, b, http.StatusNotFound, sentence(err.Error()), typed)
 	case post.Invalid:
-		p.failTyped(w, r, http.StatusBadRequest, sentence(err.Error()), typed)
+		p.failIn(w, r, b, http.StatusBadRequest, sentence(err.Error()), typed)
 	case post.Forbidden:
-		p.failTyped(w, r, http.StatusForbidden, sentence(err.Error()), typed)
+		p.failIn(w, r, b, http.StatusForbidden, sentence(err.Error()), typed)
+	case post.Conflict:
+		p.failIn(w, r, b, http.StatusConflict, sentence(err.Error()), typed)
 	default:
 		p.s.Logf("agora serve %s %s: %v", r.Method, r.URL.Path, err)
-		p.failTyped(w, r, http.StatusInternalServerError, "The board failed: "+err.Error(), typed)
+		p.failIn(w, r, b, http.StatusInternalServerError, "The board failed: "+err.Error(), typed)
 	}
 }
 

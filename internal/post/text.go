@@ -53,6 +53,21 @@ func Title(s string) (string, error) {
 	return t, nil
 }
 
+// BoardTitle checks a board's title and returns it without surrounding
+// whitespace; an empty one becomes the board's id.
+func BoardTitle(s, id string) (string, error) {
+	if !utf8.ValidString(s) {
+		return "", Errorf(Invalid, "the title isn't valid UTF-8")
+	}
+	if strings.ContainsAny(s, "\r\n") {
+		return "", Errorf(Invalid, "the title must be a single line")
+	}
+	if t := strings.TrimSpace(s); t != "" {
+		return t, nil
+	}
+	return id, nil
+}
+
 // Body normalizes a body: it drops a leading byte order mark, converts \r\n
 // line endings to \n, and ends a body that isn't empty with a newline.
 func Body(s string) (string, error) {

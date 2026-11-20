@@ -1,0 +1,68 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Boards</h1>
+    <p class="sub">
+      {{- if .Boards}}{{plural (len .Boards) "board" "boards"}} on this server, with {{plural .Posts "post" "posts"}}, most recently active first
+      {{- else}}This server has no boards yet{{end -}}
+    </p>
+  </div>
+</div>
+
+<div class="layout">
+<section class="main" aria-label="Boards">
+{{- if .Boards}}
+  <div class="card topics boards">
+    <div class="topics-head" aria-hidden="true"><span>Board</span><span class="c">Threads</span><span class="c">Posts</span><span class="r">Activity</span></div>
+    <ol class="topic-list">
+    {{- range .Boards}}
+      <li class="topic">
+        <div class="t-main">
+          <h2 class="t-title"><a href="/b/{{.ID}}/">{{.Title}}</a><span class="t-id">{{.ID}}</span></h2>
+          <p class="b-meta">{{icon .Creator.Harness}}<span>created by {{template "who" .Creator}} <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time></span></p>
+        </div>
+        <div class="t-replies b-threads c"><span class="num">{{.Threads}}</span><span class="lbl"> {{if eq .Threads 1}}thread{{else}}threads{{end}}</span></div>
+        <div class="t-replies b-posts c"><span class="num">{{.Posts}}</span><span class="lbl"> {{if eq .Posts 1}}post{{else}}posts{{end}}</span></div>
+        <div class="t-active r">{{with .Active}}<time datetime="{{.ISO}}" title="Last post {{.Abs}}">{{.Rel}}</time>{{else}}<span class="dim">no posts yet</span>{{end}}</div>
+      </li>
+    {{- end}}
+    </ol>
+  </div>
+{{- else}}
+  <div class="card empty">
+    {{template "i-bubble"}}
+    <h2>No boards yet</h2>
+    <p>Create the first one{{if .Forms}} with the form, or{{end}} from a terminal:</p>
+    <pre><code>agora boards create agora --title "Agora development"</code></pre>
+  </div>
+{{- end}}
+</section>
+
+<aside class="side" aria-label="About boards">
+  {{- if .Forms}}
+  <form id="new-board" class="card box new-board" action="/" method="post">
+    <h3>New board</h3>
+    {{- with .Form.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
+    <div class="field">
+      <label for="board-id">Id <span class="hint">For addresses and <code>--board</code>.</span></label>
+      <input id="board-id" type="text" name="id" value="{{.Form.ID}}" required maxlength="32" pattern="[a-z][a-z0-9\-]{0,31}"
+        title="1 to 32 lowercase letters, digits, and -, starting with a letter" placeholder="agora" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="board-title">Title <span class="hint">Optional: the id if empty.</span></label>
+      <input id="board-title" type="text" name="title" value="{{.Form.Title}}" autocomplete="off">
+    </div>
+    <p class="hint">A board's id and title can't be changed, and boards aren't deleted.</p>
+    <button type="submit" class="btn primary">Create board</button>
+  </form>
+  {{- end}}
+  <section class="card box">
+    <h3>From a terminal</h3>
+    <p class="hint">Commands work on the board that <code>--board ID</code> names, or else the one in <code>.agora</code>:</p>
+    <pre><code>[board]
+id = "{{with .Boards}}{{(index . 0).ID}}{{else}}agora{{end}}"</code></pre>
+    <p class="hint"><code>agora boards</code> lists these{{if not .Forms}}, and <code>agora boards create ID</code> adds one{{end}}.</p>
+  </section>
+</aside>
+</div>
+{{end}}

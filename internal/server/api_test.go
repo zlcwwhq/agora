@@ -30,7 +30,10 @@ func start(t *testing.T, person post.Identity) (string, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	srv := httptest.NewServer(New(Options{Board: st, Person: person, Version: "test", Logf: t.Logf}))
+	if _, err := st.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(Options{Store: st, Person: person, Version: "test", Logf: t.Logf}))
 	t.Cleanup(srv.Close)
 	return srv.URL, st
 }
@@ -38,7 +41,7 @@ func start(t *testing.T, person post.Identity) (string, *store.Store) {
 func TestAPIRoundTrip(t *testing.T) {
 	base, _ := start(t, post.Identity{})
 	ctx := context.Background()
-	cx, al := client.New(base, codex), client.New(base, alice)
+	cx, al := client.New(base, "b", codex), client.New(base, "b", alice)
 
 	root, err := cx.Post(ctx, post.NewThread{Title: "Plan", Tags: []string{"design"}, Body: "first"})
 	if err != nil || root.ID != 1 || root.Thread != 1 {
@@ -88,7 +91,7 @@ func TestAPIRoundTrip(t *testing.T) {
 func TestAPINonce(t *testing.T) {
 	base, _ := start(t, post.Identity{})
 	send := func() int {
-		req, _ := http.NewRequest("POST", base+"/api/threads", strings.NewReader(`{"title": "T", "body": "b", "nonce": "abc"}`))
+		req, _ := http.NewRequest("POST", base+"/api/boards/b/threads", strings.NewReader(`{"title": "T", "body": "b", "nonce": "abc"}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Agora-Author", codex.Header())
 		resp, err := http.DefaultClient.Do(req)
@@ -105,30 +108,35 @@ func TestAPINonce(t *testing.T) {
 
 func TestAPIRefusesCrossSiteRequests(t *testing.T) {
 	base, st := start(t, post.Identity{})
-	if _, _, err := st.Post(context.Background(), codex, post.NewThread{Title: "T", Body: "b"}); err != nil {
+	if _, _, err := st.Post(context.Background(), codex, "b", post.NewThread{Title: "T", Body: "b"}); err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
 		name, method, path, host, ctype, author, body string
 		want                                          int
 	}{
-		{"form post", "POST", "/api/threads", "", "application/x-www-form-urlencoded", codex.Header(), "title=T&body=b", 415},
-		{"text post", "POST", "/api/threads", "", "text/plain", codex.Header(), `{"title": "T", "body": "b"}`, 415},
-		{"no author", "POST", "/api/threads", "", "application/json", "", `{"title": "T", "body": "b"}`, 400},
-		{"bad author", "DELETE", "/api/posts/1", "", "", "codex@gpu", "", 400},
-		{"delete without author", "DELETE", "/api/posts/1", "", "", "", "", 400},
-		{"rebinding", "GET", "/api/threads", "evil.example:7777", "", "", "", 403},
+		{"form post", "POST", "/api/boards/b/threads", "", "application/x-www-form-urlencoded", codex.Header(), "title=T&body=b", 415},
+		{"text post", "POST", "/api/boards/b/threads", "", "text/plain", codex.Header(), `{"title": "T", "body": "b"}`, 415},
+		{"no author", "POST", "/api/boards/b/threads", "", "application/json", "", `{"title": "T", "body": "b"}`, 400},
+		{"bad author", "DELETE", "/api/boards/b/posts/1", "", "", "codex@gpu", "", 400},
+		{"delete without author", "DELETE", "/api/boards/b/posts/1", "", "", "", "", 400},
+		{"rebinding", "GET", "/api/boards/b/threads", "evil.example:7777", "", "", "", 403},
 		{"rebinding page", "GET", "/", "evil.example", "", "", "", 403},
-		{"localhost", "GET", "/api/threads", "localhost:7777", "", "", "", 200},
-		{"dot localhost", "GET", "/api/tags", "agora.localhost", "", "", "", 200},
-		{"ipv6", "GET", "/api/tags", "[::1]:7777", "", "", "", 200},
-		{"unknown field", "POST", "/api/threads", "", "application/json", codex.Header(), `{"title": "T", "bdy": "b"}`, 400},
-		{"wrong method", "PUT", "/api/threads", "", "application/json", codex.Header(), `{}`, 405},
+		{"localhost", "GET", "/api/boards/b/threads", "localhost:7777", "", "", "", 200},
+		{"dot localhost", "GET", "/api/boards/b/tags", "agora.localhost", "", "", "", 200},
+		{"ipv6", "GET", "/api/boards/b/tags", "[::1]:7777", "", "", "", 200},
+		{"unknown field", "POST", "/api/boards/b/threads", "", "application/json", codex.Header(), `{"title": "T", "bdy": "b"}`, 400},
+		{"wrong method", "PUT", "/api/boards/b/threads", "", "application/json", codex.Header(), `{}`, 405},
 		{"unknown path", "GET", "/api/nope", "", "", "", "", 404},
-		{"bad id", "GET", "/api/posts/01", "", "", "", "", 400},
-		{"missing post", "GET", "/api/posts/9", "", "", "", "", 404},
-		{"too large", "POST", "/api/threads", "", "application/json", codex.Header(), `{"title": "T", "body": "` + strings.Repeat("x", 1<<20) + `"}`, 413},
-		{"empty edit", "PATCH", "/api/posts/1", "", "application/json", codex.Header(), `{}`, 400},
+		{"bad id", "GET", "/api/boards/b/posts/01", "", "", "", "", 400},
+		{"missing post", "GET", "/api/boards/b/posts/9", "", "", "", "", 404},
+		{"too large", "POST", "/api/boards/b/threads", "", "application/json", codex.Header(), `{"title": "T", "body": "` + strings.Repeat("x", 1<<20) + `"}`, 413},
+		{"empty edit", "PATCH", "/api/boards/b/posts/1", "", "application/json", codex.Header(), `{}`, 400},
+		{"unknown board", "GET", "/api/boards/nope/threads", "", "", "", "", 404},
+		{"invalid board", "GET", "/api/boards/Bad/tags", "", "", "", "", 400},
+		{"taken board", "POST", "/api/boards", "", "application/json", codex.Header(), `{"id": "b"}`, 409},
+		{"board as a form", "POST", "/api/boards", "", "application/x-www-form-urlencoded", codex.Header(), "id=x", 415},
+		{"boards wrong method", "DELETE", "/api/boards", "", "", codex.Header(), "", 405},
 	}
 	for _, c := range cases {
 		req, err := http.NewRequest(c.method, base+c.path, strings.NewReader(c.body))
@@ -162,7 +170,7 @@ func TestAPIRefusesCrossSiteRequests(t *testing.T) {
 		}
 	}
 	// Nothing above published.
-	ts, err := st.List(context.Background(), post.Filter{})
+	ts, err := st.List(context.Background(), "b", post.Filter{})
 	if err != nil || len(ts) != 1 {
 		t.Errorf("threads after refused requests = %+v, %v", ts, err)
 	}
@@ -172,7 +180,7 @@ func TestUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	base := srv.URL
 	srv.Close()
-	_, err := client.New(base, codex).Tags(context.Background())
+	_, err := client.New(base, "b", codex).Tags(context.Background())
 	if _, ok := err.(*client.UnreachableError); !ok || !strings.Contains(err.Error(), "agora serve") {
 		t.Errorf("Tags of a closed server: %T %v", err, err)
 	}
@@ -187,5 +195,38 @@ func TestAllowedHost(t *testing.T) {
 		if got := AllowedHost(host); got != want {
 			t.Errorf("AllowedHost(%q) = %v, want %v", host, got, want)
 		}
+	}
+}
+
+func TestAPIBoards(t *testing.T) {
+	base, _ := start(t, post.Identity{})
+	ctx := context.Background()
+	cx := client.New(base, "proj", codex)
+	b, err := cx.CreateBoard(ctx, post.NewBoard{ID: "proj", Title: "The project"})
+	if err != nil || b.ID != "proj" || b.Title != "The project" || b.Creator != "codex/019a2b3c@gpu" {
+		t.Fatalf("CreateBoard = %+v, %v", b, err)
+	}
+	if _, err := cx.CreateBoard(ctx, post.NewBoard{ID: "proj"}); post.KindOf(err) != post.Conflict {
+		t.Errorf("CreateBoard of a taken id: %v", err)
+	}
+	if _, err := client.New(base, "", post.Identity{}).CreateBoard(ctx, post.NewBoard{ID: "x"}); post.KindOf(err) != post.Invalid {
+		t.Errorf("CreateBoard without an identity: %v", err)
+	}
+	pub, err := cx.Post(ctx, post.NewThread{Title: "First", Body: "x"})
+	if err != nil || pub.ID != 1 {
+		t.Fatalf("Post on proj = %+v, %v", pub, err)
+	}
+	bs, err := cx.Boards(ctx)
+	if err != nil || len(bs) != 2 || bs[0].ID != "proj" || bs[0].Posts != 1 || bs[1].ID != "b" {
+		t.Errorf("Boards = %+v, %v", bs, err)
+	}
+	if _, err := client.New(base, "nope", codex).List(ctx, post.Filter{}); post.KindOf(err) != post.NotFound || !strings.Contains(err.Error(), "agora boards") {
+		t.Errorf("List on an unknown board: %v", err)
+	}
+	if _, err := client.New(base, "Bad", codex).Tags(ctx); post.KindOf(err) != post.Invalid {
+		t.Errorf("Tags on an invalid board: %v", err)
+	}
+	if show, err := client.New(base, "b", codex).Show(ctx, 1); post.KindOf(err) != post.NotFound {
+		t.Errorf("proj's #1 shows on b: %+v, %v", show, err)
 	}
 }

@@ -15,23 +15,27 @@ import (
 const AuthorHeader = "Agora-Author"
 
 func (s *server) routeAPI(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/threads", s.apiList)
-	mux.HandleFunc("GET /api/search", s.apiSearch)
-	mux.HandleFunc("GET /api/tags", s.apiTags)
-	mux.HandleFunc("GET /api/posts/{id}", s.apiShow)
-	mux.HandleFunc("POST /api/threads", s.apiPost)
-	mux.HandleFunc("POST /api/posts/{id}/replies", s.apiReply)
-	mux.HandleFunc("PATCH /api/posts/{id}", s.apiEdit)
-	mux.HandleFunc("DELETE /api/posts/{id}", s.apiDelete)
-	mux.HandleFunc("POST /api/unread", s.apiUnread)
+	const b = "/api/boards/{board}"
+	mux.HandleFunc("GET /api/boards", s.apiBoards)
+	mux.HandleFunc("POST /api/boards", s.apiCreateBoard)
+	mux.HandleFunc("GET "+b+"/threads", s.apiList)
+	mux.HandleFunc("GET "+b+"/search", s.apiSearch)
+	mux.HandleFunc("GET "+b+"/tags", s.apiTags)
+	mux.HandleFunc("GET "+b+"/posts/{id}", s.apiShow)
+	mux.HandleFunc("POST "+b+"/threads", s.apiPost)
+	mux.HandleFunc("POST "+b+"/posts/{id}/replies", s.apiReply)
+	mux.HandleFunc("PATCH "+b+"/posts/{id}", s.apiEdit)
+	mux.HandleFunc("DELETE "+b+"/posts/{id}", s.apiDelete)
+	mux.HandleFunc("POST "+b+"/unread", s.apiUnread)
 	// Known paths with other methods.
 	for path, allow := range map[string]string{
-		"/api/threads":            "GET, HEAD, POST",
-		"/api/search":             "GET, HEAD",
-		"/api/tags":               "GET, HEAD",
-		"/api/posts/{id}":         "GET, HEAD, PATCH, DELETE",
-		"/api/posts/{id}/replies": "POST",
-		"/api/unread":             "POST",
+		"/api/boards":             "GET, HEAD, POST",
+		b + "/threads":            "GET, HEAD, POST",
+		b + "/search":             "GET, HEAD",
+		b + "/tags":               "GET, HEAD",
+		b + "/posts/{id}":         "GET, HEAD, PATCH, DELETE",
+		b + "/posts/{id}/replies": "POST",
+		b + "/unread":             "POST",
 	} {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Allow", allow)
@@ -127,6 +131,43 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
+// pathBoard returns the board that the path names, answering the request if
+// it isn't a board's id.
+func pathBoard(w http.ResponseWriter, r *http.Request) (string, bool) {
+	board := r.PathValue("board")
+	if err := post.CheckBoard(board); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	return board, true
+}
+
+func (s *server) apiBoards(w http.ResponseWriter, r *http.Request) {
+	bs, err := s.Store.Boards(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bs)
+}
+
+func (s *server) apiCreateBoard(w http.ResponseWriter, r *http.Request) {
+	who, ok := writer(w, r)
+	if !ok {
+		return
+	}
+	var req post.NewBoard
+	if !decode(w, r, &req) {
+		return
+	}
+	b, err := s.Store.CreateBoard(r.Context(), who, req)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, b)
+}
+
 // filterParams reads the parameters that narrow lists of threads.
 func filterParams(r *http.Request) (post.Filter, error) {
 	q := r.URL.Query()
@@ -150,12 +191,16 @@ func filterParams(r *http.Request) (post.Filter, error) {
 }
 
 func (s *server) apiList(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	f, err := filterParams(r)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	ts, err := s.Board.List(r.Context(), f)
+	ts, err := s.Store.List(r.Context(), board, f)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -164,13 +209,17 @@ func (s *server) apiList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiSearch(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	f, err := filterParams(r)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	q := post.Query{Terms: r.URL.Query()["q"], Field: r.URL.Query().Get("in"), Filter: f}
-	rs, err := s.Board.Search(r.Context(), q)
+	rs, err := s.Store.Search(r.Context(), board, q)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -179,7 +228,11 @@ func (s *server) apiSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiTags(w http.ResponseWriter, r *http.Request) {
-	tags, err := s.Board.Tags(r.Context())
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
+	tags, err := s.Store.Tags(r.Context(), board)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -188,11 +241,15 @@ func (s *server) apiTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiShow(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
-	show, err := s.Board.Show(r.Context(), id)
+	show, err := s.Store.Show(r.Context(), board, id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -209,6 +266,10 @@ func published(w http.ResponseWriter, pub post.Published, created bool) {
 }
 
 func (s *server) apiPost(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	who, ok := writer(w, r)
 	if !ok {
 		return
@@ -217,7 +278,7 @@ func (s *server) apiPost(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	pub, created, err := s.Board.Post(r.Context(), who, req)
+	pub, created, err := s.Store.Post(r.Context(), who, board, req)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -226,6 +287,10 @@ func (s *server) apiPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiReply(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	who, ok := writer(w, r)
 	if !ok {
 		return
@@ -238,7 +303,7 @@ func (s *server) apiReply(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	pub, created, err := s.Board.Reply(r.Context(), who, id, req)
+	pub, created, err := s.Store.Reply(r.Context(), who, board, id, req)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -247,6 +312,10 @@ func (s *server) apiReply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiEdit(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	who, ok := writer(w, r)
 	if !ok {
 		return
@@ -259,7 +328,7 @@ func (s *server) apiEdit(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &e) {
 		return
 	}
-	p, err := s.Board.Edit(r.Context(), who, id, e)
+	p, err := s.Store.Edit(r.Context(), who, board, id, e)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -268,6 +337,10 @@ func (s *server) apiEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiDelete(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	who, ok := writer(w, r)
 	if !ok {
 		return
@@ -276,7 +349,7 @@ func (s *server) apiDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	removed, err := s.Board.Delete(r.Context(), who, id)
+	removed, err := s.Store.Delete(r.Context(), who, board, id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -285,6 +358,10 @@ func (s *server) apiDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) apiUnread(w http.ResponseWriter, r *http.Request) {
+	board, ok := pathBoard(w, r)
+	if !ok {
+		return
+	}
 	who, ok := writer(w, r)
 	if !ok {
 		return
@@ -293,7 +370,7 @@ func (s *server) apiUnread(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	u, err := s.Board.Unread(r.Context(), who, req)
+	u, err := s.Store.Unread(r.Context(), who, board, req)
 	if err != nil {
 		s.fail(w, err)
 		return

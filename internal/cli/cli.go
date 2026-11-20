@@ -1,6 +1,6 @@
 // Package cli is agora's command line, as api/cli.md specifies: every command
-// but init, whoami, and serve is a client of the board's server, and serve
-// runs that server.
+// but init, whoami, and serve is a client of a server, most of them on one of
+// its boards, and serve runs that server.
 package cli
 
 import (
@@ -58,12 +58,14 @@ type command struct {
 	name, args, summary string
 	run                 func(*ctx, []string) error
 	flags               func(*flag.FlagSet, *opts)
-	// positional is the number of arguments, or -1 for one or more.
+	// positional is the number of arguments, -1 for one or more, or -2 for
+	// any number, which the command checks.
 	positional int
 }
 
 type opts struct {
 	config, server, as string
+	board              string
 	json               bool
 	node, author       string
 	force              bool
@@ -91,13 +93,17 @@ func bodyFlags(fs *flag.FlagSet, o *opts) {
 }
 
 var commands = []command{
-	{name: "init", args: "[--node NAME] [--server HOST:PORT] [--author HARNESS/SESSION] [--force]", summary: "write the configuration file, .agora", run: runInit,
+	{name: "init", args: "[--board ID] [--node NAME] [--server HOST:PORT] [--author HARNESS/SESSION] [--force]", summary: "write the configuration file, .agora", run: runInit,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.node, "node", "", "this machine's node `name`; default the host name")
 			fs.StringVar(&o.author, "author", "", "who you are when no harness is detected, `HARNESS/SESSION`")
 			fs.BoolVar(&o.force, "force", false, "replace an existing file")
 		}},
-	{name: "whoami", summary: "show the identity, configuration, and server that commands use", run: runWhoami},
+	{name: "whoami", summary: "show the identity, configuration, server, and board that commands use", run: runWhoami},
+	{name: "boards", args: "[create ID [--title TITLE]]", summary: "list the server's boards, or create one", run: runBoards, positional: -2,
+		flags: func(fs *flag.FlagSet, o *opts) {
+			fs.StringVar(&o.title, "title", "", "the new board's `title`; default its id")
+		}},
 	{name: "post", args: "--title TITLE [-t TAG]... [-m BODY | -f FILE]", summary: "start a thread", run: runPost,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.title, "title", "", "the thread's `title`")
@@ -138,7 +144,7 @@ var commands = []command{
 			fs.BoolVar(&o.peek, "peek", false, "don't mark them seen")
 			fs.StringVar(&o.since, "since", "", "for a new reader, also posts created within `DURATION`, such as 90m or 2d")
 		}},
-	{name: "serve", args: "[--addr HOST:PORT] [--db FILE] [--as human/NAME]", summary: "run the board's server: the API and the web pages", run: runServe,
+	{name: "serve", args: "[--addr HOST:PORT] [--db FILE] [--as human/NAME]", summary: "run the server of the boards: the API and the web pages", run: runServe,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.addr, "addr", "", "listen on `HOST:PORT`; default the configured server; port 0 picks a free port")
 			fs.StringVar(&o.db, "db", "", "the board's database `FILE`; default board.db in agora's state directory")
@@ -193,6 +199,7 @@ func run(env Env) error {
 	fs.SetOutput(env.Stderr)
 	fs.StringVar(&o.config, "config", "", "the configuration `FILE`; default $AGORA_CONFIG, else the nearest .agora")
 	fs.StringVar(&o.server, "server", "", "the server, `HOST:PORT`, overriding the configuration")
+	fs.StringVar(&o.board, "board", "", "the board's `ID`, overriding the configuration")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.StringVar(&o.as, "as", "", "act as `HARNESS/SESSION`")
 	if cmd.flags != nil {
@@ -250,7 +257,7 @@ func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "agora: a message board for agents and the people who work with them")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "usage: agora COMMAND [ARGS] [--config FILE] [--server HOST:PORT] [--json] [--as HARNESS/SESSION]")
+	fmt.Fprintln(w, "usage: agora COMMAND [ARGS] [--config FILE] [--server HOST:PORT] [--board ID] [--json] [--as HARNESS/SESSION]")
 	fmt.Fprintln(w)
 	for _, c := range commands {
 		fmt.Fprintf(w, "  %-7s %s\n", c.name, c.summary)
@@ -279,7 +286,7 @@ func (c *ctx) home() string {
 // config returns the configuration, loading it once.
 func (c *ctx) config() (config.Config, error) {
 	if c.cfg == nil {
-		cfg, err := config.Load(c.o.config, c.o.server, config.Env{
+		cfg, err := config.Load(c.o.config, c.o.server, c.o.board, config.Env{
 			Dir: c.env.Dir, Home: c.home(), Getenv: c.env.Getenv, Hostname: c.env.Hostname,
 		})
 		if err != nil {
@@ -343,9 +350,25 @@ func (c *ctx) author() (post.Identity, error) {
 	return who, err
 }
 
-// client returns a client of the configured server, acting as the identity
-// if need is true.
+// errNoBoard is the failure of a command that needs a board without one.
+var errNoBoard = errors.New("no board: pass --board ID, set AGORA_BOARD, or set id in [board] of .agora; agora boards lists the server's boards")
+
+// client returns a client of the configured server and board, acting as
+// the identity if need is true.
 func (c *ctx) client(need bool) (*client.Client, error) {
+	cfg, err := c.config()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Board == "" {
+		return nil, errNoBoard
+	}
+	return c.serverClient(need)
+}
+
+// serverClient returns a client of the configured server, for calls that
+// need no board.
+func (c *ctx) serverClient(need bool) (*client.Client, error) {
 	cfg, err := c.config()
 	if err != nil {
 		return nil, err
@@ -356,7 +379,7 @@ func (c *ctx) client(need bool) (*client.Client, error) {
 			return nil, err
 		}
 	}
-	return client.New(cfg.URL(), who), nil
+	return client.New(cfg.URL(), cfg.Board, who), nil
 }
 
 func (c *ctx) ctx() context.Context {
@@ -452,7 +475,7 @@ func (c *ctx) warnf(format string, args ...any) {
 // postURL returns a post's address in the server's pages.
 func (c *ctx) postURL(thread, id int64) string {
 	cfg, _ := c.config()
-	return fmt.Sprintf("%s/t/%d#%d", cfg.URL(), thread, id)
+	return fmt.Sprintf("%s/b/%s/t/%d#%d", cfg.URL(), cfg.Board, thread, id)
 }
 
 func runInit(c *ctx, _ []string) error {
@@ -481,19 +504,26 @@ func runInit(c *ctx, _ []string) error {
 	if c.o.node != "" && !post.ValidNode(c.o.node) {
 		return usagef("invalid --node %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", c.o.node)
 	}
-	if err := config.Write(path, host, port, c.o.node, c.o.author, c.o.force); err != nil {
+	if c.o.board != "" && !post.ValidBoard(c.o.board) {
+		return usagef("invalid --board %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", c.o.board)
+	}
+	if err := config.Write(path, host, port, c.o.board, c.o.node, c.o.author, c.o.force); err != nil {
 		return err
 	}
 	// What commands that use the file get.
-	c.o.config, c.o.server = path, ""
+	c.o.config, c.o.server, c.o.board = path, "", ""
 	cfg, err := c.config()
 	if err != nil {
 		return err
 	}
 	if c.o.json {
-		return c.printJSON(map[string]string{"config": path, "server": cfg.URL(), "node": cfg.Node})
+		return c.printJSON(map[string]string{"config": path, "server": cfg.URL(), "board": cfg.Board, "node": cfg.Node})
 	}
-	c.printf("wrote %s\nserver %s\nnode   %s\n", path, cfg.URL(), cfg.Node)
+	board := cfg.Board
+	if board == "" {
+		board = "(none: commands need --board or AGORA_BOARD)"
+	}
+	c.printf("wrote %s\nserver %s\nboard  %s\nnode   %s\n", path, cfg.URL(), board, cfg.Node)
 	return nil
 }
 
@@ -514,7 +544,8 @@ func runWhoami(c *ctx, _ []string) error {
 		Source  string `json:"source"`
 		Config  string `json:"config"`
 		Server  string `json:"server"`
-	}{"", who.Harness, who.Session, cfg.Node, source, cfg.Path, cfg.URL()}
+		Board   string `json:"board"`
+	}{"", who.Harness, who.Session, cfg.Node, source, cfg.Path, cfg.URL(), cfg.Board}
 	if !who.IsZero() {
 		out.Author = who.Author()
 	}
@@ -530,8 +561,64 @@ func runWhoami(c *ctx, _ []string) error {
 	if cfgPath == "" {
 		cfgPath = "(none: defaults; agora init writes one)"
 	}
-	c.printf("node     %s\nconfig   %s\nserver   %s\n", cfg.Node, cfgPath, cfg.URL())
+	board := cfg.Board
+	if board == "" {
+		board = "(none: pass --board ID, set AGORA_BOARD, or set id in [board] of .agora)"
+	}
+	c.printf("node     %s\nconfig   %s\nserver   %s\nboard    %s\n", cfg.Node, cfgPath, cfg.URL(), board)
 	return nil
+}
+
+func runBoards(c *ctx, args []string) error {
+	switch {
+	case len(args) == 0:
+		if c.o.set["title"] {
+			return usagef("--title is for agora boards create")
+		}
+		cl, err := c.serverClient(false)
+		if err != nil {
+			return err
+		}
+		bs, err := cl.Boards(c.ctx())
+		if err != nil {
+			return err
+		}
+		if c.o.json {
+			return c.printJSON(bs)
+		}
+		if len(bs) == 0 {
+			c.printf("no boards: agora boards create ID creates one\n")
+		}
+		for _, b := range bs {
+			c.printf("%-16s %s\n", b.ID, b.Title)
+			meta := []string{plural(b.Threads, "thread", "threads"), plural(b.Posts, "post", "posts")}
+			if b.LastActivity != "" {
+				meta = append(meta, "active "+when(b.LastActivity))
+			}
+			c.printf("%-16s %s\n", "", strings.Join(meta, " · "))
+		}
+		return nil
+	case len(args) == 2 && args[0] == "create":
+		if !post.ValidBoard(args[1]) {
+			return usagef("invalid board %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", args[1])
+		}
+		cl, err := c.serverClient(true)
+		if err != nil {
+			return err
+		}
+		b, err := cl.CreateBoard(c.ctx(), post.NewBoard{ID: args[1], Title: c.o.title})
+		if err != nil {
+			return err
+		}
+		cfg, _ := c.config()
+		url := cfg.URL() + "/b/" + b.ID + "/"
+		if c.o.json {
+			return c.printJSON(map[string]string{"id": b.ID, "title": b.Title, "url": url})
+		}
+		c.printf("created board %s  %s\n", b.ID, url)
+		return nil
+	}
+	return usagef("usage: agora boards [create ID [--title TITLE]]")
 }
 
 func (c *ctx) printPublished(verb string, pub post.Published) error {

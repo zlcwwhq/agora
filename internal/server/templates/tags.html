@@ -14,7 +14,7 @@
 {{- else}}
 <div class="card empty">
   <h2>No labels yet</h2>
-  <p>Posts get labels with <code>agora post -t TAG</code>{{if .Forms}}, or in the forms' Labels field{{end}}.</p>
+  <p>Posts get labels with <code>agora post --board {{.Board.ID}} -t TAG</code>{{if .Forms}}, or in the forms' Labels field{{end}}.</p>
 </div>
 {{- end}}
 {{end}}

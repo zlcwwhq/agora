@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{{.Title}} · agora</title>
+<title>{{.Title}} · {{with .Board}}{{.Title}} · {{end}}agora</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -13,28 +13,41 @@
 <a class="skip" href="#main">Skip to content</a>
 <header class="topbar">
   <div class="wrap bar">
-    <a class="brand" href="/" aria-label="agora, all threads">{{template "logo"}}<span>agora</span></a>
-    <form class="search" action="/" method="get" role="search">
-      <label class="sr" for="search-q">Search posts</label>
+    <div class="where">
+      <a class="brand" href="/" aria-label="agora, every board">{{template "logo"}}<span>agora</span></a>
+      {{- with .Board}}
+      <span class="slash" aria-hidden="true">/</span>
+      <a class="board-name" href="/b/{{.ID}}/" title="Board {{.ID}}">{{.Title}}</a>
+      {{- end}}
+    </div>
+    {{- with .Board}}
+    <form class="search" action="/b/{{.ID}}/" method="get" role="search">
+      <label class="sr" for="search-q">Search posts on {{.Title}}</label>
       <span class="search-field">
         {{template "i-search"}}
-        <input id="search-q" type="search" name="q" value="{{.Query.Q}}" placeholder="Search threads and posts" accesskey="s">
+        <input id="search-q" type="search" name="q" value="{{$.Query.Q}}" placeholder="Search {{.Title}}" accesskey="s">
       </span>
       <label class="sr" for="search-in">Search in</label>
       <select id="search-in" name="in">
         <option value="">Everywhere</option>
-        <option value="title"{{if eq .Query.In "title"}} selected{{end}}>Titles</option>
-        <option value="body"{{if eq .Query.In "body"}} selected{{end}}>Messages</option>
+        <option value="title"{{if eq $.Query.In "title"}} selected{{end}}>Titles</option>
+        <option value="body"{{if eq $.Query.In "body"}} selected{{end}}>Messages</option>
       </select>
-      {{- range .Query.Tags}}<input type="hidden" name="t" value="{{.}}">{{end}}
-      {{- with .Query.Author}}<input type="hidden" name="author" value="{{.}}">{{end}}
+      {{- range $.Query.Tags}}<input type="hidden" name="t" value="{{.}}">{{end}}
+      {{- with $.Query.Author}}<input type="hidden" name="author" value="{{.}}">{{end}}
       <button type="submit" class="btn">Search</button>
     </form>
     <nav class="nav" aria-label="Sections">
-      <a href="/"{{if eq .Nav "threads"}} aria-current="page"{{end}}>Threads</a>
-      <a href="/tags"{{if eq .Nav "tags"}} aria-current="page"{{end}}>Labels</a>
-      {{- if .Forms}}<a class="btn primary" href="/new"{{if eq .Nav "new"}} aria-current="page"{{end}}>{{template "i-plus"}}<span>New thread</span></a>{{end}}
+      <a href="/b/{{.ID}}/"{{if eq $.Nav "threads"}} aria-current="page"{{end}}>Threads</a>
+      <a href="/b/{{.ID}}/tags"{{if eq $.Nav "tags"}} aria-current="page"{{end}}>Labels</a>
+      {{- if $.Forms}}<a class="btn primary" href="/b/{{.ID}}/new"{{if eq $.Nav "new"}} aria-current="page"{{end}}>{{template "i-plus"}}<span>New thread</span></a>{{end}}
     </nav>
+    {{- else}}
+    <nav class="nav" aria-label="Sections">
+      <a href="/"{{if eq .Nav "boards"}} aria-current="page"{{end}}>Boards</a>
+      {{- if .Forms}}<a class="btn primary" href="/#new-board">{{template "i-plus"}}<span>New board</span></a>{{end}}
+    </nav>
+    {{- end}}
   </div>
 </header>
 <main id="main" class="wrap page">

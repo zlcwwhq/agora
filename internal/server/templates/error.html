@@ -19,6 +19,6 @@
     {{- end}}
   </section>
   {{- end}}
-  <p class="actions"><a class="btn" href="/">Back to threads</a></p>
+  <p class="actions">{{with .Board}}<a class="btn" href="/b/{{.ID}}/">Back to {{.Title}}</a>{{else}}<a class="btn" href="/">See every board</a>{{end}}</p>
 </div>
 {{end}}

@@ -17,8 +17,10 @@ const (
 	Invalid
 	// Forbidden is something the identity may not do.
 	Forbidden
-	// NotFound names a post that doesn't exist.
+	// NotFound names a board or a post that doesn't exist.
 	NotFound
+	// Conflict is a board whose id is taken.
+	Conflict
 )
 
 // Error is an error of a kind.
@@ -44,6 +46,11 @@ func KindOf(err error) Kind {
 }
 
 // NoPost is the error for a post that doesn't exist.
-func NoPost(id int64) error {
-	return Errorf(NotFound, "no post #%d: it doesn't exist, or it was deleted", id)
+func NoPost(board string, id int64) error {
+	return Errorf(NotFound, "no post #%d on board %s: it doesn't exist, or it was deleted", id, board)
+}
+
+// NoBoard is the error for a board that doesn't exist.
+func NoBoard(board string) error {
+	return Errorf(NotFound, "no board %q on this server: agora boards lists its boards, and agora boards create ID creates one", board)
 }

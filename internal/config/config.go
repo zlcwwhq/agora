@@ -1,5 +1,5 @@
 // Package config finds and reads the configuration file, .agora, that names
-// the board's server and who is using it, as api/config.md specifies.
+// the server, the board, and who is using them, as api/config.md specifies.
 package config
 
 import (
@@ -46,6 +46,9 @@ type File struct {
 		Host string `toml:"host"`
 		Port int    `toml:"port"`
 	} `toml:"server"`
+	Board struct {
+		ID string `toml:"id"`
+	} `toml:"board"`
 	Whoami struct {
 		Node   string `toml:"node"`
 		Author string `toml:"author"`
@@ -59,6 +62,8 @@ type Config struct {
 	Path string
 	Host string
 	Port int
+	// Board is the board's id, or "" if none is named.
+	Board string
 	// Node is this machine's node.
 	Node string
 	// Author is [whoami] author, HARNESS/SESSION, or "".
@@ -72,9 +77,9 @@ func (c Config) Addr() string { return net.JoinHostPort(c.Host, strconv.Itoa(c.P
 func (c Config) URL() string { return "http://" + c.Addr() }
 
 // Load returns the configuration: the file named by flag, else the one that
-// Find finds, with the overrides of server, the --server flag, and of the
-// environment.
-func Load(flag, server string, env Env) (Config, error) {
+// Find finds, with the overrides of server and board, the --server and
+// --board flags, and of the environment.
+func Load(flag, server, board string, env Env) (Config, error) {
 	path, err := Find(flag, env)
 	if err != nil {
 		return Config{}, err
@@ -91,7 +96,16 @@ func Load(flag, server string, env Env) (Config, error) {
 		if f.Server.Port != 0 {
 			c.Port = f.Server.Port
 		}
-		c.Node, c.Author = f.Whoami.Node, f.Whoami.Author
+		c.Board, c.Node, c.Author = f.Board.ID, f.Whoami.Node, f.Whoami.Author
+	}
+	for _, o := range []struct{ value, source string }{{env.Getenv("AGORA_BOARD"), "AGORA_BOARD"}, {board, "--board"}} {
+		if o.value == "" {
+			continue
+		}
+		if !post.ValidBoard(o.value) {
+			return Config{}, fmt.Errorf("%s: invalid board %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", o.source, o.value)
+		}
+		c.Board = o.value
 	}
 	for _, o := range []struct{ value, source string }{{env.Getenv("AGORA_SERVER"), "AGORA_SERVER"}, {server, "--server"}} {
 		if o.value == "" {
@@ -212,6 +226,9 @@ func Read(path string) (File, error) {
 	if md.IsDefined("server", "port") && (f.Server.Port < 1 || f.Server.Port > 65535) {
 		return f, fmt.Errorf("%s: [server] port %d: want 1 to 65535", path, f.Server.Port)
 	}
+	if md.IsDefined("board", "id") && !post.ValidBoard(f.Board.ID) {
+		return f, fmt.Errorf("%s: [board] id %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", path, f.Board.ID)
+	}
 	if md.IsDefined("whoami", "node") && !post.ValidNode(f.Whoami.Node) {
 		return f, fmt.Errorf("%s: [whoami] node %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", path, f.Whoami.Node)
 	}
@@ -271,11 +288,14 @@ func NodeFromHostname(h string) string {
 }
 
 // Write writes a configuration file at path with the server host:port and,
-// when they aren't empty, node and author. It fails if path exists, unless
-// force replaces a file; it never replaces a directory.
-func Write(path, host string, port int, node, author string, force bool) error {
+// when they aren't empty, board, node, and author. It fails if path exists,
+// unless force replaces a file; it never replaces a directory.
+func Write(path, host string, port int, board, node, author string, force bool) error {
 	if err := checkHost(host); err != nil {
 		return err
+	}
+	if board != "" && !post.ValidBoard(board) {
+		return fmt.Errorf("invalid board %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", board)
 	}
 	if node != "" && !post.ValidNode(node) {
 		return fmt.Errorf("invalid node %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", node)
@@ -288,6 +308,9 @@ func Write(path, host string, port int, node, author string, force bool) error {
 	var b strings.Builder
 	b.WriteString("# agora's configuration; see api/config.md in agora's sources.\n\n[server]\n")
 	fmt.Fprintf(&b, "host = %s\nport = %d\n", strconv.Quote(host), port)
+	if board != "" {
+		fmt.Fprintf(&b, "\n[board]\nid = %s\n", strconv.Quote(board))
+	}
 	if node != "" || author != "" {
 		b.WriteString("\n[whoami]\n")
 		if node != "" {

@@ -127,15 +127,20 @@ func TestEndToEnd(t *testing.T) {
 	e := newEnv(t)
 	e.serve(t)
 	e.vars["CODEX_THREAD_ID"] = "019a2b3c-codex"
+	if r := e.run("list"); r.code != 1 || !strings.Contains(r.err, "no board: pass --board ID") {
+		t.Errorf("list without a board: %+v", r)
+	}
+	e.ok(t, "boards", "create", "proj")
+	e.vars["AGORA_BOARD"] = "proj"
 
 	var root published
 	e.json(t, &root, "post", "--title", "Plan", "-t", "Design", "-m", "the plan")
-	if root.ID != 1 || root.Thread != 1 || !strings.HasSuffix(root.URL, "/t/1#1") {
+	if root.ID != 1 || root.Thread != 1 || !strings.HasSuffix(root.URL, "/b/proj/t/1#1") {
 		t.Fatalf("post = %+v", root)
 	}
 	var rep published
 	e.json(t, &rep, "reply", "#1", "--as", "human/alice", "-m", "see #1")
-	if rep.Thread != 1 || !strings.HasSuffix(rep.URL, "/t/1#2") {
+	if rep.Thread != 1 || !strings.HasSuffix(rep.URL, "/b/proj/t/1#2") {
 		t.Fatalf("reply = %+v", rep)
 	}
 
@@ -225,7 +230,7 @@ func TestEndToEnd(t *testing.T) {
 	if removed.ID != 1 || len(removed.Removed) != 3 {
 		t.Errorf("delete = %+v", removed)
 	}
-	if r := e.run("show", "2", "--json"); r.code != 1 || r.out != "" || !strings.Contains(r.err, "no post #2") {
+	if r := e.run("show", "2", "--json"); r.code != 1 || r.out != "" || !strings.Contains(r.err, "no post #2 on board proj") {
 		t.Errorf("show after delete: %+v", r)
 	}
 	if out := e.ok(t, "list"); !strings.Contains(out, "no threads") {
@@ -236,13 +241,13 @@ func TestEndToEnd(t *testing.T) {
 func TestIdentityOrder(t *testing.T) {
 	e := newEnv(t)
 	cfg := filepath.Join(e.dir, ".agora")
-	e.ok(t, "init", "--node", "laptop", "--author", "human/alice", "--server", "127.0.0.1:9")
-	if data, _ := os.ReadFile(cfg); !strings.Contains(string(data), `author = "human/alice"`) {
+	e.ok(t, "init", "--node", "laptop", "--author", "human/alice", "--server", "127.0.0.1:9", "--board", "proj")
+	if data, _ := os.ReadFile(cfg); !strings.Contains(string(data), `author = "human/alice"`) || !strings.Contains(string(data), `id = "proj"`) {
 		t.Fatalf("config:\n%s", data)
 	}
-	var who struct{ Author, Source, Config, Server, Node string }
+	var who struct{ Author, Source, Config, Server, Node, Board string }
 	e.json(t, &who, "whoami")
-	if who.Author != "human/alice@laptop" || who.Source != "config" || who.Config != cfg || who.Server != "http://127.0.0.1:9" {
+	if who.Author != "human/alice@laptop" || who.Source != "config" || who.Config != cfg || who.Server != "http://127.0.0.1:9" || who.Board != "proj" {
 		t.Errorf("config identity = %+v", who)
 	}
 	e.vars["CLAUDE_CODE_SESSION_ID"] = "95d3e5c1-claude"
@@ -265,11 +270,11 @@ func TestIdentityOrder(t *testing.T) {
 	e.ok(t, "init", "--force")
 	delete(e.vars, "AGORA_AUTHOR")
 	delete(e.vars, "CLAUDE_CODE_SESSION_ID")
-	e.json(t, &who, "whoami")
-	if who.Author != "" || who.Node != "testbox" || who.Server != "http://127.0.0.1:7777" {
+	e.json(t, &who, "whoami", "--board", "other")
+	if who.Author != "" || who.Node != "testbox" || who.Server != "http://127.0.0.1:7777" || who.Board != "other" {
 		t.Errorf("after init --force = %+v", who)
 	}
-	if r := e.run("post", "--title", "x"); r.code != 1 || !strings.Contains(r.err, "no identity") {
+	if r := e.run("post", "--title", "x", "--board", "b"); r.code != 1 || !strings.Contains(r.err, "no identity") {
 		t.Errorf("post without identity: %+v", r)
 	}
 }
@@ -291,6 +296,10 @@ func TestUsageErrors(t *testing.T) {
 		{"search", "x", "--title", "--body"},
 		{"unread", "--since", "1w"},
 		{"--version", "x"},
+		{"boards", "make", "x"},
+		{"boards", "create", "Bad"},
+		{"boards", "--title", "x"},
+		{"init", "--board", "Bad"},
 	} {
 		if r := e.run(args...); r.code != 2 {
 			t.Errorf("agora %s: exit %d, want 2: %s", strings.Join(args, " "), r.code, r.err)
@@ -304,6 +313,7 @@ func TestUsageErrors(t *testing.T) {
 func TestUnreachableServer(t *testing.T) {
 	e := newEnv(t)
 	e.vars["AGORA_SERVER"] = "127.0.0.1:9"
+	e.vars["AGORA_BOARD"] = "b"
 	r := e.run("list", "--json")
 	if r.code != 1 || r.out != "" || !strings.Contains(r.err, "can't reach the agora server at http://127.0.0.1:9") {
 		t.Errorf("list without a server: %+v", r)
@@ -355,5 +365,47 @@ func TestServeLocksDatabase(t *testing.T) {
 	}
 	if r.code != 1 || !strings.Contains(r.err, "in use") {
 		t.Errorf("second serve on the database: %+v", r)
+	}
+}
+
+func TestBoards(t *testing.T) {
+	e := newEnv(t)
+	e.serve(t)
+	e.vars["AGORA_AUTHOR"] = "human/alice"
+	if out := e.ok(t, "boards"); !strings.Contains(out, "no boards") {
+		t.Errorf("boards of a new server: %q", out)
+	}
+	var created struct{ ID, Title, URL string }
+	e.json(t, &created, "boards", "create", "alpha", "--title", "Alpha project")
+	if created.ID != "alpha" || created.Title != "Alpha project" || !strings.HasSuffix(created.URL, "/b/alpha/") {
+		t.Errorf("create = %+v", created)
+	}
+	e.ok(t, "boards", "create", "beta")
+	if r := e.run("boards", "create", "beta"); r.code != 1 || !strings.Contains(r.err, `board "beta" exists`) {
+		t.Errorf("creating a taken board: %+v", r)
+	}
+
+	// Each board numbers its own posts; --board beats AGORA_BOARD.
+	e.vars["AGORA_BOARD"] = "alpha"
+	var pub published
+	e.json(t, &pub, "post", "--title", "In alpha", "-m", "x")
+	e.json(t, &pub, "post", "--title", "In beta", "-m", "x", "--board", "beta")
+	if pub.ID != 1 || !strings.Contains(pub.URL, "/b/beta/t/1#1") {
+		t.Errorf("beta's first post = %+v", pub)
+	}
+	var boards []struct {
+		ID           string
+		Threads      int
+		LastActivity string `json:"last_activity"`
+	}
+	e.json(t, &boards, "boards")
+	if len(boards) != 2 || boards[0].ID != "beta" || boards[0].Threads != 1 || boards[1].ID != "alpha" || boards[1].LastActivity == "" {
+		t.Errorf("boards = %+v", boards)
+	}
+	if r := e.run("list", "--board", "gamma"); r.code != 1 || !strings.Contains(r.err, `no board "gamma"`) {
+		t.Errorf("list on an unknown board: %+v", r)
+	}
+	if r := e.run("post", "--title", "x", "--board", "gamma"); r.code != 1 || !strings.Contains(r.err, `no board "gamma"`) {
+		t.Errorf("post on an unknown board: %+v", r)
 	}
 }

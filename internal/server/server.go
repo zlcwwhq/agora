@@ -1,6 +1,7 @@
-// Package server serves a board: the HTTP API of api/http.md, which the
-// command line uses, and the web pages of api/web.md. It reaches the board
-// only through Board, which the command line fills with the store.
+// Package server serves a server's boards: the HTTP API of api/http.md,
+// which the command line uses, and the web pages of api/web.md. It reaches
+// the boards only through Store, which the command line fills with the
+// store.
 package server
 
 import (
@@ -14,24 +15,27 @@ import (
 	"github.com/zlcwwhq/agora/internal/post"
 )
 
-// Board is what the server needs of the board's store.
-type Board interface {
-	Post(ctx context.Context, who post.Identity, req post.NewThread) (post.Published, bool, error)
-	Reply(ctx context.Context, who post.Identity, to int64, req post.NewReply) (post.Published, bool, error)
-	Edit(ctx context.Context, who post.Identity, id int64, e post.Edit) (post.Post, error)
-	Delete(ctx context.Context, who post.Identity, id int64) (post.Removed, error)
-	Get(ctx context.Context, id int64) (post.Post, error)
-	Show(ctx context.Context, id int64) (post.Show, error)
-	List(ctx context.Context, f post.Filter) ([]post.Thread, error)
-	Search(ctx context.Context, q post.Query) ([]post.Result, error)
-	Tags(ctx context.Context) ([]post.TagCount, error)
-	Harnesses(ctx context.Context) ([]post.HarnessCount, error)
-	Unread(ctx context.Context, who post.Identity, req post.UnreadRequest) (post.Unread, error)
+// Store is what the server needs of the boards' store.
+type Store interface {
+	Boards(ctx context.Context) ([]post.Board, error)
+	Board(ctx context.Context, id string) (post.Board, error)
+	CreateBoard(ctx context.Context, who post.Identity, req post.NewBoard) (post.Board, error)
+	Post(ctx context.Context, who post.Identity, board string, req post.NewThread) (post.Published, bool, error)
+	Reply(ctx context.Context, who post.Identity, board string, to int64, req post.NewReply) (post.Published, bool, error)
+	Edit(ctx context.Context, who post.Identity, board string, id int64, e post.Edit) (post.Post, error)
+	Delete(ctx context.Context, who post.Identity, board string, id int64) (post.Removed, error)
+	Get(ctx context.Context, board string, id int64) (post.Post, error)
+	Show(ctx context.Context, board string, id int64) (post.Show, error)
+	List(ctx context.Context, board string, f post.Filter) ([]post.Thread, error)
+	Search(ctx context.Context, board string, q post.Query) ([]post.Result, error)
+	Tags(ctx context.Context, board string) ([]post.TagCount, error)
+	Harnesses(ctx context.Context, board string) ([]post.HarnessCount, error)
+	Unread(ctx context.Context, who post.Identity, board string, req post.UnreadRequest) (post.Unread, error)
 }
 
 // Options configure a server.
 type Options struct {
-	Board Board
+	Store Store
 	// Person is the identity that the pages' forms act as, a person's, or
 	// zero for pages that only read.
 	Person post.Identity
@@ -139,6 +143,8 @@ func status(err error) int {
 		return http.StatusForbidden
 	case post.NotFound:
 		return http.StatusNotFound
+	case post.Conflict:
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

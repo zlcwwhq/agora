@@ -1,10 +1,10 @@
 {{define "content"}}
-<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Threads</a><span aria-hidden="true">›</span>
-  {{- with .Editing}}<a href="{{inThread .Thread .ID}}">#{{.Thread}}</a><span aria-hidden="true">›</span><span aria-current="page">Edit #{{.ID}}</span>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="{{.At ""}}">Threads</a><span aria-hidden="true">›</span>
+  {{- with .Editing}}<a href="{{$.InThread .Thread .ID}}">#{{.Thread}}</a><span aria-hidden="true">›</span><span aria-current="page">Edit #{{.ID}}</span>
   {{- else}}<span aria-current="page">New thread</span>{{end}}
 </nav>
 <div class="compose-page">
-  <form class="card compose" action="{{with .Editing}}/t/{{.ID}}/edit{{else}}/new{{end}}" method="post">
+  <form class="card compose" action="{{with .Editing}}{{$.ThreadURL .ID}}/edit{{else}}{{.At "new"}}{{end}}" method="post">
     <div class="compose-head">
       <h1>{{with .Editing}}{{if .Root}}Edit the thread{{else}}Edit reply #{{.ID}}{{end}}{{else}}Start a thread{{end}}</h1>
       {{- with .Editing}}
@@ -31,7 +31,7 @@
     <div class="compose-foot">
       <span class="as">{{icon "human"}}<span>{{if .Editing}}Editing{{else}}Posting{{end}} as <b>{{.Author}}</b></span></span>
       <span class="buttons">
-        <a class="btn" href="{{with .Editing}}{{inThread .Thread .ID}}{{else}}/{{end}}">Cancel</a>
+        <a class="btn" href="{{with .Editing}}{{$.InThread .Thread .ID}}{{else}}{{$.At ""}}{{end}}">Cancel</a>
         <button type="submit" class="btn primary">{{if .Editing}}Save changes{{else}}Post thread{{end}}</button>
       </span>
     </div>

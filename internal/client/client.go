@@ -1,4 +1,4 @@
-// Package client calls a board's server through the HTTP API of
+// Package client calls an agora server through the HTTP API of
 // api/http.md.
 package client
 
@@ -18,18 +18,20 @@ import (
 	"github.com/zlcwwhq/agora/internal/post"
 )
 
-// Client calls one server as one identity.
+// Client calls one server, on one board, as one identity.
 type Client struct {
 	// Base is the server's address, such as http://127.0.0.1:7777.
 	Base string
+	// Board is the board of the calls that need one.
+	Board string
 	// Who is the identity of requests that need one.
 	Who  post.Identity
 	HTTP *http.Client
 }
 
-// New returns a client of the server at base.
-func New(base string, who post.Identity) *Client {
-	return &Client{Base: base, Who: who, HTTP: &http.Client{Timeout: 60 * time.Second}}
+// New returns a client of the server at base, on board.
+func New(base, board string, who post.Identity) *Client {
+	return &Client{Base: base, Board: board, Who: who, HTTP: &http.Client{Timeout: 60 * time.Second}}
 }
 
 // UnreachableError is a server that can't be reached.
@@ -108,6 +110,8 @@ func kind(status int) post.Kind {
 		return post.Forbidden
 	case http.StatusNotFound:
 		return post.NotFound
+	case http.StatusConflict:
+		return post.Conflict
 	}
 	return post.Other
 }
@@ -126,12 +130,27 @@ func filterQuery(f post.Filter) url.Values {
 	return q
 }
 
-func postPath(id int64) string { return "/api/posts/" + strconv.FormatInt(id, 10) }
+// boardPath returns the path of the board's endpoint p.
+func (c *Client) boardPath(p string) string { return "/api/boards/" + url.PathEscape(c.Board) + p }
+
+func (c *Client) postPath(id int64) string { return c.boardPath("/posts/" + strconv.FormatInt(id, 10)) }
+
+// Boards lists the server's boards, as agora boards.
+func (c *Client) Boards(ctx context.Context) ([]post.Board, error) {
+	var out []post.Board
+	return out, c.do(ctx, http.MethodGet, "/api/boards", nil, nil, &out)
+}
+
+// CreateBoard creates a board, as agora boards create.
+func (c *Client) CreateBoard(ctx context.Context, req post.NewBoard) (post.Board, error) {
+	var out post.Board
+	return out, c.do(ctx, http.MethodPost, "/api/boards", nil, req, &out)
+}
 
 // List lists threads, as agora list.
 func (c *Client) List(ctx context.Context, f post.Filter) ([]post.Thread, error) {
 	var out []post.Thread
-	return out, c.do(ctx, http.MethodGet, "/api/threads", filterQuery(f), nil, &out)
+	return out, c.do(ctx, http.MethodGet, c.boardPath("/threads"), filterQuery(f), nil, &out)
 }
 
 // Search searches, as agora search.
@@ -144,47 +163,47 @@ func (c *Client) Search(ctx context.Context, q post.Query) ([]post.Result, error
 		v.Set("in", q.Field)
 	}
 	var out []post.Result
-	return out, c.do(ctx, http.MethodGet, "/api/search", v, nil, &out)
+	return out, c.do(ctx, http.MethodGet, c.boardPath("/search"), v, nil, &out)
 }
 
 // Tags lists tags, as agora tags.
 func (c *Client) Tags(ctx context.Context) ([]post.TagCount, error) {
 	var out []post.TagCount
-	return out, c.do(ctx, http.MethodGet, "/api/tags", nil, nil, &out)
+	return out, c.do(ctx, http.MethodGet, c.boardPath("/tags"), nil, nil, &out)
 }
 
 // Show returns the thread that contains id, as agora show.
 func (c *Client) Show(ctx context.Context, id int64) (post.Show, error) {
 	var out post.Show
-	return out, c.do(ctx, http.MethodGet, postPath(id), nil, nil, &out)
+	return out, c.do(ctx, http.MethodGet, c.postPath(id), nil, nil, &out)
 }
 
 // Post starts a thread, as agora post.
 func (c *Client) Post(ctx context.Context, req post.NewThread) (post.Published, error) {
 	var out post.Published
-	return out, c.do(ctx, http.MethodPost, "/api/threads", nil, req, &out)
+	return out, c.do(ctx, http.MethodPost, c.boardPath("/threads"), nil, req, &out)
 }
 
 // Reply replies to id, as agora reply.
 func (c *Client) Reply(ctx context.Context, id int64, req post.NewReply) (post.Published, error) {
 	var out post.Published
-	return out, c.do(ctx, http.MethodPost, postPath(id)+"/replies", nil, req, &out)
+	return out, c.do(ctx, http.MethodPost, c.postPath(id)+"/replies", nil, req, &out)
 }
 
 // Edit edits id, as agora edit.
 func (c *Client) Edit(ctx context.Context, id int64, e post.Edit) (post.Post, error) {
 	var out post.Post
-	return out, c.do(ctx, http.MethodPatch, postPath(id), nil, e, &out)
+	return out, c.do(ctx, http.MethodPatch, c.postPath(id), nil, e, &out)
 }
 
 // Delete deletes id, as agora delete.
 func (c *Client) Delete(ctx context.Context, id int64) (post.Removed, error) {
 	var out post.Removed
-	return out, c.do(ctx, http.MethodDelete, postPath(id), nil, nil, &out)
+	return out, c.do(ctx, http.MethodDelete, c.postPath(id), nil, nil, &out)
 }
 
 // Unread returns the identity's unread posts, as agora unread.
 func (c *Client) Unread(ctx context.Context, req post.UnreadRequest) (post.Unread, error) {
 	var out post.Unread
-	return out, c.do(ctx, http.MethodPost, "/api/unread", nil, req, &out)
+	return out, c.do(ctx, http.MethodPost, c.boardPath("/unread"), nil, req, &out)
 }

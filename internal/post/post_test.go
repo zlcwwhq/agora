@@ -141,3 +141,25 @@ func TestParseSince(t *testing.T) {
 		}
 	}
 }
+
+func TestBoards(t *testing.T) {
+	for _, ok := range []string{"agora", "a", "proj-2", "abcdefghijklmnopqrstuvwxyz012345"} {
+		if err := CheckBoard(ok); err != nil {
+			t.Errorf("CheckBoard(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "Agora", "2proj", "a_b", "a.b", "abcdefghijklmnopqrstuvwxyz0123456"} {
+		if err := CheckBoard(bad); KindOf(err) != Invalid {
+			t.Errorf("CheckBoard(%q) = %v, want Invalid", bad, err)
+		}
+	}
+	if got, err := BoardTitle("  The agora board ", "agora"); err != nil || got != "The agora board" {
+		t.Errorf("BoardTitle = %q, %v", got, err)
+	}
+	if got, err := BoardTitle(" ", "agora"); err != nil || got != "agora" {
+		t.Errorf("BoardTitle of blank = %q, %v", got, err)
+	}
+	if _, err := BoardTitle("a\nb", "agora"); KindOf(err) != Invalid {
+		t.Errorf("BoardTitle of two lines = %v", err)
+	}
+}

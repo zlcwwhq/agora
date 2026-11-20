@@ -25,25 +25,25 @@ var funcs = template.FuncMap{
 		}
 		return strconv.Itoa(n) + " " + many
 	},
-	"postURL":  postURL,
-	"inThread": inThread,
 }
 
-// defaultLimit is the number of threads that / shows without n, and the
-// number that each "more" adds.
+// defaultLimit is the number of threads that /b/BOARD/ shows without n, and
+// the number that each "more" adds.
 const defaultLimit = 50
 
-// query is the state of /: a search or a listing, with filters.
+// query is the state of /b/BOARD/: a search or a listing of Board, with
+// filters.
 type query struct {
+	Board         string
 	Q, In, Author string
 	Tags          []string
 	N             int
 }
 
-// parseQuery reads /'s parameters, rejecting what the command line rejects
-// with a message for the page that explains it.
-func parseQuery(v url.Values) (query, string) {
-	q := query{Q: strings.TrimSpace(v.Get("q")), In: v.Get("in"), Author: strings.TrimSpace(v.Get("author")), N: defaultLimit}
+// parseQuery reads the parameters of board's threads, rejecting what the
+// command line rejects with a message for the page that explains it.
+func parseQuery(board string, v url.Values) (query, string) {
+	q := query{Board: board, Q: strings.TrimSpace(v.Get("q")), In: v.Get("in"), Author: strings.TrimSpace(v.Get("author")), N: defaultLimit}
 	switch q.In {
 	case "", post.FieldTitle, post.FieldBody:
 	default:
@@ -85,9 +85,9 @@ func (q query) URL() string {
 		v.Set("n", strconv.Itoa(q.N))
 	}
 	if len(v) == 0 {
-		return "/"
+		return boardURL(q.Board, "")
 	}
-	return "/?" + v.Encode()
+	return boardURL(q.Board, "") + "?" + v.Encode()
 }
 
 // HasTag reports whether q requires tag.
@@ -272,7 +272,7 @@ func highlight(text string, terms []string) []piece {
 	return out
 }
 
-// tagRow is a tag in the sidebar or on /tags.
+// tagRow is a tag in the sidebar or on /b/BOARD/tags.
 type tagRow struct {
 	Tag     string
 	Threads int
@@ -302,7 +302,7 @@ type harnessRow struct {
 	URL     string
 }
 
-// threadsView is the data of /.
+// threadsView is the data of /b/BOARD/.
 type threadsView struct {
 	base
 	// Terms are the search's, if it is one.
@@ -318,12 +318,12 @@ type threadsView struct {
 	Posts int
 }
 
-func (p *pages) threadsView(r *http.Request, q query) (threadsView, error) {
+func (p *pages) threadsView(r *http.Request, b *post.Board, q query) (threadsView, error) {
 	ctx := r.Context()
-	v := threadsView{base: p.base("threads", "Threads", q), Terms: terms(q.Q)}
+	v := threadsView{base: p.base(b, "threads", "Threads", q), Terms: terms(q.Q)}
 	if len(v.Terms) > 0 {
 		v.Title = "Search: " + q.Q
-		results, err := p.s.Board.Search(ctx, post.Query{Terms: v.Terms, Field: q.In, Filter: q.filter(q.N + 1)})
+		results, err := p.s.Store.Search(ctx, b.ID, post.Query{Terms: v.Terms, Field: q.In, Filter: q.filter(q.N + 1)})
 		if err != nil {
 			return v, err
 		}
@@ -335,14 +335,14 @@ func (p *pages) threadsView(r *http.Request, q query) (threadsView, error) {
 			v.Rows = append(v.Rows, row)
 		}
 		if id, err := post.ParseID(q.Q); err == nil {
-			if _, err := p.s.Board.Get(ctx, id); err == nil {
+			if _, err := p.s.Store.Get(ctx, b.ID, id); err == nil {
 				v.Jump = id
 			} else if post.KindOf(err) != post.NotFound {
 				return v, err
 			}
 		}
 	} else {
-		threads, err := p.s.Board.List(ctx, q.filter(q.N+1))
+		threads, err := p.s.Store.List(ctx, b.ID, q.filter(q.N+1))
 		if err != nil {
 			return v, err
 		}
@@ -356,12 +356,12 @@ func (p *pages) threadsView(r *http.Request, q query) (threadsView, error) {
 		more.N = q.N + defaultLimit
 		v.More = more.URL()
 	}
-	tags, err := p.s.Board.Tags(ctx)
+	tags, err := p.s.Store.Tags(ctx, b.ID)
 	if err != nil {
 		return v, err
 	}
 	v.Tags = tagRows(tags, q)
-	harnesses, err := p.s.Board.Harnesses(ctx)
+	harnesses, err := p.s.Store.Harnesses(ctx, b.ID)
 	if err != nil {
 		return v, err
 	}
@@ -372,7 +372,7 @@ func (p *pages) threadsView(r *http.Request, q query) (threadsView, error) {
 	return v, nil
 }
 
-// tagsView is the data of /tags.
+// tagsView is the data of /b/BOARD/tags.
 type tagsView struct {
 	base
 	Tags []tagRow
@@ -403,7 +403,7 @@ type participant struct {
 	Posts int
 }
 
-// threadView is the data of /t/ID.
+// threadView is the data of /b/BOARD/t/ID.
 type threadView struct {
 	base
 	Thread       threadRow
@@ -416,14 +416,14 @@ type threadView struct {
 	Form        form
 }
 
-func (p *pages) threadView(show post.Show) (threadView, error) {
-	v := threadView{base: p.base("", show.Thread.Title, query{}), Thread: p.threadRow(show.Thread), Backlinks: show.Backlinks, Focus: show.Focus}
+func (p *pages) threadView(b *post.Board, show post.Show) (threadView, error) {
+	v := threadView{base: p.base(b, "", show.Thread.Title, query{}), Thread: p.threadRow(show.Thread), Backlinks: show.Backlinks, Focus: show.Focus}
 	authors := map[int64]string{}
 	counts := map[string]*participant{}
 	var order []string
 	for _, ps := range show.Posts {
 		authors[ps.ID] = ps.Author
-		body, err := render(ps.Body, ps.Refs)
+		body, err := render(ps.Body, b.ID, ps.Refs)
 		if err != nil {
 			return v, err
 		}
@@ -465,10 +465,46 @@ type editing struct {
 	ThreadTitle     string
 }
 
-// composeView is the data of /new and /t/ID/edit.
+// composeView is the data of /b/BOARD/new and /b/BOARD/t/ID/edit.
 type composeView struct {
 	base
 	Form form
 	// Editing is the post edited, or nil for a new thread.
 	Editing *editing
+}
+
+// boardRow is a board in the list of boards.
+type boardRow struct {
+	ID, Title      string
+	Threads, Posts int
+	Creator        who
+	Created        stamp
+	// Active is the board's last activity, or nil if it has no posts.
+	Active *stamp
+}
+
+func (p *pages) boardRow(b post.Board) boardRow {
+	row := boardRow{
+		ID: b.ID, Title: b.Title, Threads: b.Threads, Posts: b.Posts,
+		Creator: parseWho(b.Creator), Created: p.stamp(b.Created),
+	}
+	if b.LastActivity != "" {
+		a := p.stamp(b.LastActivity)
+		row.Active = &a
+	}
+	return row
+}
+
+// boardForm is what the form that creates a board holds.
+type boardForm struct {
+	ID, Title, Reason string
+}
+
+// boardsView is the data of /.
+type boardsView struct {
+	base
+	Boards []boardRow
+	// Posts is the number of posts on every board.
+	Posts int
+	Form  boardForm
 }

@@ -6,6 +6,7 @@ package post
 
 // Post is a post, as api/cli.md's <post> shape.
 type Post struct {
+	Board   string `json:"board"`
 	ID      int64  `json:"id"`
 	Thread  int64  `json:"thread"`
 	ReplyTo *int64 `json:"reply_to"`
@@ -29,6 +30,7 @@ func (p Post) IsRoot() bool { return p.ID == p.Thread }
 
 // Thread is a thread, as api/cli.md's <thread> shape.
 type Thread struct {
+	Board        string   `json:"board"`
 	ID           int64    `json:"id"`
 	Title        string   `json:"title"`
 	Author       string   `json:"author"`
@@ -36,6 +38,23 @@ type Thread struct {
 	LastActivity string   `json:"last_activity"`
 	Replies      int      `json:"replies"`
 	Tags         []string `json:"tags"`
+}
+
+// Board is a board, as api/cli.md's <board> shape.
+type Board struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Creator      string `json:"creator"`
+	Created      string `json:"created"`
+	Threads      int    `json:"threads"`
+	Posts        int    `json:"posts"`
+	LastActivity string `json:"last_activity"`
+}
+
+// NewBoard asks to create a board.
+type NewBoard struct {
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
 }
 
 // Backlink is a reference to a thread's post from a post of another thread.

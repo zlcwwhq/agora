@@ -59,7 +59,7 @@ func runServe(c *ctx, _ []string) error {
 	}
 	tcp, _ := ln.Addr().(*net.TCPAddr)
 	if tcp == nil || !tcp.IP.IsLoopback() {
-		c.warnf("listening on %s: anyone who reaches it can read the board and write to it as anyone", ln.Addr())
+		c.warnf("listening on %s: anyone who reaches it can read the boards and write to them as anyone", ln.Addr())
 	}
 	url := "http://" + displayAddr(ln.Addr()) + "/"
 	author := ""
@@ -92,7 +92,7 @@ func runServe(c *ctx, _ []string) error {
 		defer stop()
 	}
 	err = server.Run(ctx, ln, server.Options{
-		Board:   st,
+		Store:   st,
 		Person:  person,
 		Version: c.env.Version,
 		Now:     c.env.Now,

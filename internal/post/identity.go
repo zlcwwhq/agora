@@ -12,6 +12,19 @@ var (
 	sessionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 )
 
+var boardPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+// ValidBoard reports whether s is a valid board id.
+func ValidBoard(s string) bool { return boardPattern.MatchString(s) }
+
+// CheckBoard returns an error of kind Invalid if s isn't a valid board id.
+func CheckBoard(s string) error {
+	if !ValidBoard(s) {
+		return Errorf(Invalid, "invalid board %q: want 1 to 32 lowercase letters, digits and '-', starting with a letter", s)
+	}
+	return nil
+}
+
 // ValidNode reports whether s is a valid node name.
 func ValidNode(s string) bool { return nodePattern.MatchString(s) }
 

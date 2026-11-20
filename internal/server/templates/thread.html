@@ -1,9 +1,9 @@
 {{define "content"}}
-<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Threads</a><span aria-hidden="true">›</span><span aria-current="page">#{{.Thread.ID}}</span></nav>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="{{.At ""}}">Threads</a><span aria-hidden="true">›</span><span aria-current="page">#{{.Thread.ID}}</span></nav>
 <header class="thread-head">
   <h1>{{.Thread.Title}}</h1>
   <div class="thread-meta">
-    {{- range .Thread.Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}
+    {{- range .Thread.Tags}}<a class="label {{hue .}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}
     <span class="meta-item">{{template "i-bubble"}}{{plural .Thread.Replies "reply" "replies"}}</span>
     <span class="meta-item">started <time datetime="{{.Thread.Created.ISO}}" title="{{.Thread.Created.Abs}}">{{.Thread.Created.Rel}}</time></span>
     <span class="meta-item">active <time datetime="{{.Thread.Active.ISO}}" title="{{.Thread.Active.Abs}}">{{.Thread.Active.Rel}}</time></span>
@@ -32,15 +32,15 @@
         {{- end}}
         <div class="body md">{{if .Body}}{{.Body}}{{else}}<p class="dim">No message.</p>{{end}}</div>
         {{- if .Tags}}
-        <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="/?t={{.}}">{{.}}</a>{{end}}</div>
+        <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}</div>
         {{- end}}
         {{- if $.Forms}}
         <footer class="post-actions">
-          <a class="act" href="/t/{{.ID}}#reply">{{template "i-reply"}}<span>Reply</span></a>
-          <a class="act" href="/t/{{.ID}}/edit">{{template "i-edit"}}<span>Edit</span></a>
+          <a class="act" href="{{$.ThreadURL .ID}}#reply">{{template "i-reply"}}<span>Reply</span></a>
+          <a class="act" href="{{$.ThreadURL .ID}}/edit">{{template "i-edit"}}<span>Edit</span></a>
           <details class="confirm">
             <summary class="act">{{template "i-trash"}}<span>Delete</span></summary>
-            <form class="confirm-box" action="/t/{{.ID}}/delete" method="post">
+            <form class="confirm-box" action="{{$.ThreadURL .ID}}/delete" method="post">
               <p>{{if .Root}}This deletes the whole thread{{with $.Thread.Replies}}, with its {{plural . "reply" "replies"}},{{end}} for good.{{else}}This deletes this reply for good. Replies to it stay.{{end}} It can't be undone.</p>
               <button type="submit" class="btn danger">{{if .Root}}Delete the thread{{else}}Delete the reply{{end}}</button>
             </form>
@@ -53,10 +53,10 @@
   </ol>
 
   {{- if .Forms}}
-  <form id="reply" class="card compose reply-box" action="/t/{{.Focus}}#reply" method="post">
+  <form id="reply" class="card compose reply-box" action="{{.ThreadURL .Focus}}#reply" method="post">
     <div class="compose-head">
       <h2>{{if eq .Focus .Thread.ID}}Reply to the thread{{else}}Reply to #{{.Focus}}{{with .FocusAuthor}} <span class="dim">by {{.}}</span>{{end}}{{end}}</h2>
-      {{- if ne .Focus .Thread.ID}}<a class="small" href="/t/{{.Thread.ID}}#reply">Reply to the thread instead</a>{{end}}
+      {{- if ne .Focus .Thread.ID}}<a class="small" href="{{.ThreadURL .Thread.ID}}#reply">Reply to the thread instead</a>{{end}}
     </div>
     {{- with .Form.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
     <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
@@ -77,7 +77,7 @@
   {{- else}}
   <div class="card cli-hint">
     <p>These pages only read. Reply from a terminal:</p>
-    <pre><code>agora reply {{.Focus}} -f answer.md</code></pre>
+    <pre><code>agora reply {{.Focus}} --board {{.Board.ID}} -f answer.md</code></pre>
   </div>
   {{- end}}
 </section>
@@ -96,7 +96,7 @@
     {{- if .Backlinks}}
     <ul class="links">
       {{- range .Backlinks}}
-      <li><a href="{{inThread .Thread .ID}}"><span class="title">{{.Title}}</span><span class="sub">#{{.ID}} → #{{.To}}</span></a></li>
+      <li><a href="{{$.InThread .Thread .ID}}"><span class="title">{{.Title}}</span><span class="sub">#{{.ID}} → #{{.To}}</span></a></li>
       {{- end}}
     </ul>
     {{- else}}
