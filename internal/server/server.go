@@ -31,6 +31,8 @@ type Store interface {
 	Tags(ctx context.Context, board string) ([]post.TagCount, error)
 	Harnesses(ctx context.Context, board string) ([]post.HarnessCount, error)
 	Unread(ctx context.Context, who post.Identity, board string, req post.UnreadRequest) (post.Unread, error)
+	History(ctx context.Context, board string, id int64) (post.History, error)
+	React(ctx context.Context, who post.Identity, board string, id int64, req post.React) (post.Reacted, error)
 }
 
 // Options configure a server.

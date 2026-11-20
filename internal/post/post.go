@@ -18,11 +18,16 @@ type Post struct {
 	Edited  string `json:"edited"`
 	// Editor is the author of the latest edit, displayed, when that isn't
 	// the post's author.
-	Editor string   `json:"editor"`
-	Title  string   `json:"title"`
-	Tags   []string `json:"tags"`
-	Body   string   `json:"body"`
-	Refs   []int64  `json:"refs"`
+	Editor string `json:"editor"`
+	// Versions is the number of versions that History lists.
+	Versions int      `json:"versions"`
+	Title    string   `json:"title"`
+	Tags     []string `json:"tags"`
+	Body     string   `json:"body"`
+	Refs     []int64  `json:"refs"`
+	// Mentions are the body's, as Mention.String writes them.
+	Mentions  []string   `json:"mentions"`
+	Reactions []Reaction `json:"reactions"`
 }
 
 // IsRoot reports whether p starts its thread.
@@ -109,6 +114,8 @@ type HarnessCount struct {
 type Unread struct {
 	NewReader bool   `json:"new_reader"`
 	Posts     []Post `json:"posts"`
+	// Edited are posts seen before and edited since by another identity.
+	Edited []Post `json:"edited"`
 }
 
 // Published is a new post's id and its thread's.
@@ -143,17 +150,27 @@ type NewReply struct {
 type Edit struct {
 	Title *string   `json:"title,omitempty"`
 	Tags  *[]string `json:"tags,omitempty"`
-	Body  *string   `json:"body,omitempty"`
+	// AddTags and RemoveTags change single tags, as ChangeTags does; they
+	// exclude Tags.
+	AddTags    *[]string `json:"add_tags,omitempty"`
+	RemoveTags *[]string `json:"remove_tags,omitempty"`
+	Body       *string   `json:"body,omitempty"`
 }
 
 // Empty reports whether e changes no field.
-func (e Edit) Empty() bool { return e.Title == nil && e.Tags == nil && e.Body == nil }
+func (e Edit) Empty() bool {
+	return e.Title == nil && e.Tags == nil && e.AddTags == nil && e.RemoveTags == nil && e.Body == nil
+}
 
 // UnreadRequest asks for a reader's unread posts.
 type UnreadRequest struct {
 	Peek bool `json:"peek,omitempty"`
 	// Since is the lookback for a new reader, in seconds.
 	Since int64 `json:"since,omitempty"`
+	// ToMe keeps only the posts for the reader, and Thread, unless it is 0,
+	// only those of the thread that contains it.
+	ToMe   bool  `json:"to_me,omitempty"`
+	Thread int64 `json:"thread,omitempty"`
 }
 
 // Filter narrows lists of threads.

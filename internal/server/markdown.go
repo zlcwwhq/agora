@@ -19,8 +19,8 @@ import (
 )
 
 // markdown renders bodies: CommonMark with GitHub's tables, strikethrough,
-// autolinks, and task lists, references as links, and without raw HTML, which
-// goldmark leaves out unless it is told to be unsafe.
+// autolinks, and task lists, references and mentions as links, and without
+// raw HTML, which goldmark leaves out unless it is told to be unsafe.
 var markdown = goldmark.New(
 	// GitHub's extensions, with tables aligning cells by attribute: pages
 	// allow no style attributes.
@@ -31,10 +31,10 @@ var markdown = goldmark.New(
 	goldmark.WithParserOptions(
 		// Lower numbers run first; the default inline parsers don't
 		// trigger on '#'.
-		parser.WithInlineParsers(util.Prioritized(refParser{}, 1000)),
+		parser.WithInlineParsers(util.Prioritized(refParser{}, 1000), util.Prioritized(mentionParser{}, 1000)),
 		parser.WithASTTransformers(util.Prioritized(safeLinks{}, 1000)),
 	),
-	goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(refRenderer{}, 1000))),
+	goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(refRenderer{}, 1000), util.Prioritized(mentionRenderer{}, 1000))),
 )
 
 // refsKey holds the map[int64]bool of the posts that a body refers to, as
@@ -45,14 +45,19 @@ var refsKey = parser.NewContextKey()
 var boardKey = parser.NewContextKey()
 
 // render renders body, a post's on board, as HTML, linking the references
-// in refs.
-func render(body, board string, refs []int64) (template.HTML, error) {
+// in refs and the mentions in mentions.
+func render(body, board string, refs []int64, mentions []string) (template.HTML, error) {
 	set := make(map[int64]bool, len(refs))
 	for _, id := range refs {
 		set[id] = true
 	}
+	mentioned := make(map[string]bool, len(mentions))
+	for _, m := range mentions {
+		mentioned[m] = true
+	}
 	pc := parser.NewContext()
 	pc.Set(refsKey, set)
+	pc.Set(mentionsKey, mentioned)
 	pc.Set(boardKey, board)
 	var buf bytes.Buffer
 	if err := markdown.Convert([]byte(body), &buf, parser.WithContext(pc)); err != nil {

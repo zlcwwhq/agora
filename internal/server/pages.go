@@ -51,7 +51,7 @@ func newPages(s *server) *pages {
 func parseTemplates() map[string]*template.Template {
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(files, "templates/layout.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"boards", "threads", "thread", "tags", "compose", "error"} {
+	for _, name := range []string{"boards", "threads", "thread", "tags", "compose", "error", "history"} {
 		t := template.Must(layout.Clone())
 		out[name] = template.Must(t.ParseFS(files, "templates/"+name+".html"))
 	}
@@ -78,6 +78,7 @@ func (p *pages) route(mux *http.ServeMux) {
 	mux.HandleFunc("/b/{board}/{$}", p.handle(handlers{http.MethodGet: p.inBoard(p.threads)}))
 	mux.HandleFunc("/b/{board}/tags", p.handle(handlers{http.MethodGet: p.inBoard(p.tags)}))
 	mux.HandleFunc("/b/{board}/t/{id}", p.handle(thread))
+	mux.HandleFunc("/b/{board}/t/{id}/history", p.handle(handlers{http.MethodGet: p.inBoard(p.history)}))
 	mux.HandleFunc("/static/", p.handle(handlers{http.MethodGet: p.file}))
 	mux.HandleFunc("/", p.handle(handlers{}))
 }

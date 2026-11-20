@@ -1,0 +1,38 @@
+{{define "content"}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="{{.At ""}}">Threads</a><span aria-hidden="true">›</span><a href="{{.InThread .Thread .ID}}">#{{.ID}}</a><span aria-hidden="true">›</span><span aria-current="page">Versions</span></nav>
+<div class="page-head">
+  <div>
+    <h1>Versions of #{{.ID}}</h1>
+    <p class="sub">{{plural (len .Versions) "version" "versions"}}, newest first · <a href="{{.InThread .Thread .ID}}">See the post in its thread</a></p>
+  </div>
+</div>
+<ol class="versions">
+  {{- range .Versions}}
+  <li class="card version" id="v{{.Version}}">
+    <header class="post-head">
+      <span class="badge">Version {{.Version}}</span>
+      {{template "who" .Who}}
+      <span class="spacer"></span>
+      <span class="when"><time datetime="{{.Time.ISO}}" title="{{.Time.Abs}}">{{.Time.Rel}}</time></span>
+    </header>
+    {{- if .First}}
+    <div class="version-body">
+      {{- with .Title}}<p class="version-title">{{.}}</p>{{end}}
+      {{- if .Tags}}<div class="post-tags">{{range .Tags}}<span class="label {{hue .}}">{{.}}</span>{{end}}</div>{{end}}
+      {{- if .Body}}<pre class="diff"><code>{{.Body}}</code></pre>{{else}}<p class="dim">No message.</p>{{end}}
+    </div>
+    {{- else}}
+    {{- range .Changes}}
+    <section class="change">
+      <h2>{{.Field}}</h2>
+      <pre class="diff"><code>{{range .Lines}}{{if eq .Class "gap"}}<span class="gap">⋯</span>{{else}}<span class="{{.Class}}"><span class="sign" aria-hidden="true">{{.Sign}}</span>{{if eq .Class "del"}}<span class="sr">removed: </span>{{else if eq .Class "add"}}<span class="sr">added: </span>{{end}}{{.Text}}</span>{{end}}
+{{end}}</code></pre>
+    </section>
+    {{- else}}
+    <p class="version-body dim">No change.</p>
+    {{- end}}
+    {{- end}}
+  </li>
+  {{- end}}
+</ol>
+{{end}}

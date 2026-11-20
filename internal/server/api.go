@@ -27,6 +27,8 @@ func (s *server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH "+b+"/posts/{id}", s.apiEdit)
 	mux.HandleFunc("DELETE "+b+"/posts/{id}", s.apiDelete)
 	mux.HandleFunc("POST "+b+"/unread", s.apiUnread)
+	mux.HandleFunc("GET "+b+"/posts/{id}/history", s.apiHistory)
+	mux.HandleFunc("POST "+b+"/posts/{id}/reactions", s.apiReact)
 	// Known paths with other methods.
 	for path, allow := range map[string]string{
 		"/api/boards":             "GET, HEAD, POST",
@@ -36,6 +38,9 @@ func (s *server) routeAPI(mux *http.ServeMux) {
 		b + "/posts/{id}":         "GET, HEAD, PATCH, DELETE",
 		b + "/posts/{id}/replies": "POST",
 		b + "/unread":             "POST",
+
+		b + "/posts/{id}/history":   "GET, HEAD",
+		b + "/posts/{id}/reactions": "POST",
 	} {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Allow", allow)

@@ -23,7 +23,7 @@
           <span class="spacer"></span>
           <span class="when">
             <a href="#{{.ID}}" title="Link to this post"><time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time></a>
-            {{- with .Edited}}<span class="edited" title="Edited {{.Abs}}"> · edited {{.Rel}}{{with $p.Editor}} by <b>{{.}}</b>{{end}}</span>{{end}}
+            {{- with .Edited}}<span class="edited" title="Edited {{.Abs}}"> · <a href="{{$.ThreadURL $p.ID}}/history" title="See its versions">edited {{.Rel}}</a>{{with $p.Editor}} by <b>{{.}}</b>{{end}}</span>{{end}}
           </span>
           <a class="pid" href="#{{.ID}}" aria-label="Post {{.ID}}">#{{.ID}}</a>
         </header>
@@ -33,6 +33,13 @@
         <div class="body md">{{if .Body}}{{.Body}}{{else}}<p class="dim">No message.</p>{{end}}</div>
         {{- if .Tags}}
         <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}</div>
+        {{- end}}
+        {{- if .Reactions}}
+        <ul class="reactions" aria-label="Reactions">
+          {{- range .Reactions}}
+          <li class="reaction" title="{{join .Authors ", "}}"><span class="r">{{.Reaction}}</span><span class="n">{{len .Authors}}</span><span class="by">{{join .Authors ", "}}</span></li>
+          {{- end}}
+        </ul>
         {{- end}}
         {{- if $.Forms}}
         <footer class="post-actions">
