@@ -83,6 +83,7 @@ type opts struct {
 	thread             string
 	addr, db           string
 	set                map[string]bool
+	threadOpts
 }
 
 type stringList []string
@@ -107,24 +108,28 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.title, "title", "", "the new board's `title`; default its id")
 		}},
-	{name: "post", args: "--title TITLE [-t TAG]... [-m BODY | -f FILE]", summary: "start a thread", run: runPost,
+	{name: "post", args: "--title TITLE [-t TAG]... [-m BODY | -f FILE] [-a FILE]...", summary: "start a thread", run: runPost,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.title, "title", "", "the thread's `title`")
 			fs.Var(&o.tags, "t", "a `tag`, repeatable")
 			bodyFlags(fs, o)
+			attachFlags(fs, o)
 		}},
-	{name: "reply", args: "ID [-t TAG]... [-m BODY | -f FILE]", summary: "reply to a post", run: runReply, positional: 1,
+	{name: "reply", args: "ID [-t TAG]... [-m BODY | -f FILE] [-a FILE]...", summary: "reply to a post", run: runReply, positional: 1,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.Var(&o.tags, "t", "a `tag`, repeatable")
 			bodyFlags(fs, o)
+			attachFlags(fs, o)
 		}},
-	{name: "edit", args: "ID [--title TITLE] [-t TAG]... [--no-tags] [--add-tag TAG]... [--remove-tag TAG]... [-m BODY | -f FILE]", summary: "change a post in place", run: runEdit, positional: 1,
+	{name: "edit", args: "ID [--title TITLE] [-t TAG]... [--no-tags] [--add-tag TAG]... [--remove-tag TAG]... [-m BODY | -f FILE] [-a FILE]... [--detach NAME]...", summary: "change a post in place", run: runEdit, positional: 1,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.title, "title", "", "the thread's new `title`")
 			fs.Var(&o.tags, "t", "a `tag` that replaces all of the post's tags, repeatable")
 			fs.BoolVar(&o.noTags, "no-tags", false, "remove the post's tags")
 			singleTagFlags(fs, o)
 			bodyFlags(fs, o)
+			attachFlags(fs, o)
+			fs.Var(&o.detach, "detach", "remove the post's attachment `NAME`, repeatable")
 		}},
 	{name: "history", args: "ID", summary: "show every version of a post", run: runHistory, positional: 1},
 	{name: "react", args: "ID REACTION [--undo]", summary: "react to a post, such as with ack, or take the reaction back", run: runReact, positional: 2,
@@ -132,20 +137,25 @@ var commands = []command{
 			fs.BoolVar(&o.undo, "undo", false, "take the reaction back")
 		}},
 	{name: "delete", args: "ID", summary: "delete a post for good, and a thread's first post with its thread", run: runDelete, positional: 1},
+	threadCommand,
+	moveCommand,
 	{name: "show", args: "ID", summary: "show the thread that contains a post", run: runShow, positional: 1},
-	{name: "list", args: "[-t TAG]... [--author AUTHOR] [-n N]", summary: "list threads by recent activity", run: runList,
+	downloadCommand,
+	{name: "list", args: "[-t TAG]... [--author AUTHOR] [--state STATE] [-n N] [--skip K]", summary: "list threads, pinned ones first, by recent activity", run: runList,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.Var(&o.tags, "t", "require a `tag`, repeatable")
 			fs.StringVar(&o.author, "author", "", "`HARNESS` or HARNESS/SESSION-PREFIX that started the thread")
 			fs.IntVar(&o.limit, "n", post.DefaultLimit, "at most `N` threads")
+			pageFlags(fs, o)
 		}},
-	{name: "search", args: "TERM... [--title | --body] [-t TAG]... [--author AUTHOR] [-n N]", summary: "find threads by title and body", run: runSearch, positional: -1,
+	{name: "search", args: "TERM... [--title | --body] [-t TAG]... [--author AUTHOR] [--state STATE] [-n N] [--skip K]", summary: "find threads by title and body", run: runSearch, positional: -1,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.BoolVar(&o.inTitle, "title", false, "match titles only")
 			fs.BoolVar(&o.inBody, "body", false, "match bodies only")
 			fs.Var(&o.tags, "t", "require a `tag` of the thread, repeatable")
 			fs.StringVar(&o.author, "author", "", "`HARNESS` or HARNESS/SESSION-PREFIX of the matching post")
 			fs.IntVar(&o.limit, "n", post.DefaultLimit, "at most `N` threads")
+			pageFlags(fs, o)
 		}},
 	{name: "tags", summary: "list tags by use", run: runTags},
 	{name: "unread", args: "[--to-me] [--thread ID] [--peek] [--since DURATION]", summary: "show posts this reader hasn't seen, and those edited since it saw them", run: runUnread,
@@ -155,6 +165,7 @@ var commands = []command{
 			fs.BoolVar(&o.peek, "peek", false, "don't mark them seen")
 			fs.StringVar(&o.since, "since", "", "for a new reader, also posts created within `DURATION`, such as 90m or 2d")
 		}},
+	backupCommand,
 	{name: "serve", args: "[--addr HOST:PORT] [--db FILE] [--as human/NAME]", summary: "run the server of the boards: the API and the web pages", run: runServe,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.addr, "addr", "", "listen on `HOST:PORT`; default the configured server; port 0 picks a free port")
@@ -271,7 +282,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage: agora COMMAND [ARGS] [--config FILE] [--server HOST:PORT] [--board ID] [--json] [--as HARNESS/SESSION]")
 	fmt.Fprintln(w)
 	for _, c := range commands {
-		fmt.Fprintf(w, "  %-7s %s\n", c.name, c.summary)
+		fmt.Fprintf(w, "  %-8s %s\n", c.name, c.summary)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Run agora COMMAND -h for its flags. Ids are numbers: agora show 12.")
@@ -467,7 +478,10 @@ func (c *ctx) filter() (post.Filter, error) {
 	if c.o.limit < 1 {
 		return post.Filter{}, usagef("-n must be at least 1")
 	}
-	return post.Filter{Tags: tags, Author: c.o.author, Limit: c.o.limit}, nil
+	if err := c.checkPage(); err != nil {
+		return post.Filter{}, err
+	}
+	return post.Filter{Tags: tags, Author: c.o.author, Limit: c.o.limit, State: c.o.state, Skip: c.o.skip}, nil
 }
 
 func (c *ctx) printJSON(v any) error {
@@ -657,12 +671,19 @@ func runPost(c *ctx, _ []string) error {
 	if err != nil {
 		return err
 	}
+	files, err := c.uploads()
+	if err != nil {
+		return err
+	}
 	cl, err := c.client(true)
 	if err != nil {
 		return err
 	}
 	pub, err := cl.Post(c.ctx(), post.NewThread{Title: c.o.title, Tags: tags, Body: body})
 	if err != nil {
+		return err
+	}
+	if err := c.attach(cl, "posted", pub.ID, files); err != nil {
 		return err
 	}
 	return c.printPublished("posted", pub)
@@ -684,12 +705,19 @@ func runReply(c *ctx, args []string) error {
 	if err != nil {
 		return err
 	}
+	files, err := c.uploads()
+	if err != nil {
+		return err
+	}
 	cl, err := c.client(true)
 	if err != nil {
 		return err
 	}
 	pub, err := cl.Reply(c.ctx(), id, post.NewReply{Tags: tags, Body: body})
 	if err != nil {
+		return err
+	}
+	if err := c.attach(cl, "replied", pub.ID, files); err != nil {
 		return err
 	}
 	return c.printPublished("replied", pub)
@@ -729,15 +757,22 @@ func runEdit(c *ctx, args []string) error {
 		}
 		e.Body = &body
 	}
-	if e.Empty() {
-		return usagef("edit needs something to change: --title, -t, --no-tags, --add-tag, --remove-tag, -m, or -f")
+	files, err := c.uploads()
+	if err != nil {
+		return err
+	}
+	if e.Empty() && len(files) == 0 && len(c.o.detach) == 0 {
+		return usagef("edit needs something to change: --title, -t, --no-tags, --add-tag, --remove-tag, -m, -f, -a, or --detach")
 	}
 	cl, err := c.client(true)
 	if err != nil {
 		return err
 	}
-	p, err := cl.Edit(c.ctx(), id, e)
+	p, err := c.edit(cl, id, e)
 	if err != nil {
+		return err
+	}
+	if err := c.changeAttachments(cl, p.ID, !e.Empty(), files); err != nil {
 		return err
 	}
 	url := c.postURL(p.Thread, p.ID)
@@ -796,7 +831,7 @@ func hashTags(tags []string) string { return "#" + strings.Join(tags, " #") }
 
 func (c *ctx) printThreadLine(t post.Thread) {
 	c.printf("#%-6d %s\n", t.ID, t.Title)
-	meta := []string{plural(t.Replies, "reply", "replies"), t.Author, "active " + when(t.LastActivity)}
+	meta := append(threadFlags(t), plural(t.Replies, "reply", "replies"), t.Author, "active "+when(t.LastActivity))
 	if len(t.Tags) > 0 {
 		meta = append(meta, hashTags(t.Tags))
 	}
@@ -833,6 +868,7 @@ func (c *ctx) printPost(p post.Post, focus bool, context string) {
 		c.printf("%s", p.Body)
 	}
 	c.printReactions(p.Reactions)
+	c.printAttachments(p)
 	c.printf("\n")
 }
 
@@ -853,7 +889,7 @@ func runShow(c *ctx, args []string) error {
 		return c.printJSON(s)
 	}
 	c.printf("#%d %s\n", s.Thread.ID, s.Thread.Title)
-	meta := []string{s.Thread.Author, plural(s.Thread.Replies, "reply", "replies")}
+	meta := append(threadFlags(s.Thread), s.Thread.Author, plural(s.Thread.Replies, "reply", "replies"))
 	if len(s.Thread.Tags) > 0 {
 		meta = append(meta, hashTags(s.Thread.Tags))
 	}

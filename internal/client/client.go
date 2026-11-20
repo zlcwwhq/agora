@@ -49,37 +49,54 @@ func (e *UnreachableError) Unwrap() error { return e.Err }
 
 // do sends a request and decodes its JSON answer into out.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, in, out any) error {
-	u := c.Base + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
-	}
 	var body io.Reader
+	ctype := ""
 	if in != nil {
 		data, err := json.Marshal(in)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(data)
+		body, ctype = bytes.NewReader(data), "application/json"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	resp, err := c.send(ctx, c.HTTP, method, path, query, body, ctype)
 	if err != nil {
 		return err
 	}
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
+	defer func() { _ = resp.Body.Close() }()
+	return c.answer(method, path, resp, out)
+}
+
+// send sends a request with a body of the type ctype, if body isn't nil,
+// through hc.
+func (c *Client) send(ctx context.Context, hc *http.Client, method, path string, query url.Values, body io.Reader, ctype string) (*http.Response, error) {
+	u := c.Base + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return nil, err
+	}
+	if ctype != "" {
+		req.Header.Set("Content-Type", ctype)
 	}
 	if !c.Who.IsZero() {
 		req.Header.Set("Agora-Author", c.Who.Header())
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) && ctx.Err() == nil {
-			return &UnreachableError{Server: c.Base, Err: ue.Err}
+			return nil, &UnreachableError{Server: c.Base, Err: ue.Err}
 		}
-		return err
+		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	return resp, nil
+}
+
+// answer decodes a JSON answer into out, or returns the error that it
+// reports.
+func (c *Client) answer(method, path string, resp *http.Response, out any) error {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
 		return fmt.Errorf("%s: reading the answer: %w", c.Base, err)
@@ -126,6 +143,12 @@ func filterQuery(f post.Filter) url.Values {
 	}
 	if f.Limit > 0 {
 		q.Set("n", strconv.Itoa(f.Limit))
+	}
+	if f.State != "" {
+		q.Set("state", f.State)
+	}
+	if f.Skip != 0 {
+		q.Set("skip", strconv.Itoa(f.Skip))
 	}
 	return q
 }

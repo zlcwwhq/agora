@@ -28,8 +28,7 @@ var funcs = template.FuncMap{
 	},
 }
 
-// defaultLimit is the number of threads that /b/BOARD/ shows without n, and
-// the number that each "more" adds.
+// defaultLimit is the number of threads that /b/BOARD/ shows without n.
 const defaultLimit = 50
 
 // query is the state of /b/BOARD/: a search or a listing of Board, with
@@ -39,6 +38,10 @@ type query struct {
 	Q, In, Author string
 	Tags          []string
 	N             int
+	// State is the threads' state, or empty for every thread, and Skip the
+	// number of threads that the page leaves out.
+	State string
+	Skip  int
 }
 
 // parseQuery reads the parameters of board's threads, rejecting what the
@@ -64,6 +67,9 @@ func parseQuery(board string, v url.Values) (query, string) {
 			return query{}, fmt.Sprintf("Show at least 1 thread, not %q.", s)
 		}
 	}
+	if bad := q.parsePage(v); bad != "" {
+		return query{}, bad
+	}
 	return q, ""
 }
 
@@ -85,6 +91,12 @@ func (q query) URL() string {
 	if q.N != 0 && q.N != defaultLimit {
 		v.Set("n", strconv.Itoa(q.N))
 	}
+	if q.State != "" {
+		v.Set("state", q.State)
+	}
+	if q.Skip > 0 {
+		v.Set("skip", strconv.Itoa(q.Skip))
+	}
 	if len(v) == 0 {
 		return boardURL(q.Board, "")
 	}
@@ -97,7 +109,7 @@ func (q query) HasTag(tag string) bool { return slices.Contains(q.Tags, tag) }
 // ToggleTag returns the address of q with tag required, or no longer required.
 func (q query) ToggleTag(tag string) string {
 	r := q
-	r.N = 0
+	r.N, r.Skip = 0, 0
 	if q.HasTag(tag) {
 		r.Tags = slices.DeleteFunc(slices.Clone(q.Tags), func(t string) bool { return t == tag })
 	} else {
@@ -109,7 +121,7 @@ func (q query) ToggleTag(tag string) string {
 // ToggleAuthor returns the address of q filtered by author, or no longer.
 func (q query) ToggleAuthor(author string) string {
 	r := q
-	r.N = 0
+	r.N, r.Skip = 0, 0
 	if q.Author == author {
 		r.Author = ""
 	} else {
@@ -121,15 +133,17 @@ func (q query) ToggleAuthor(author string) string {
 // WithoutSearch returns the address of q without its search terms.
 func (q query) WithoutSearch() string {
 	r := q
-	r.Q, r.In, r.N = "", "", 0
+	r.Q, r.In, r.N, r.Skip = "", "", 0, 0
 	return r.URL()
 }
 
 // Filtered reports whether q restricts the threads at all.
-func (q query) Filtered() bool { return q.Q != "" || len(q.Tags) > 0 || q.Author != "" }
+func (q query) Filtered() bool {
+	return q.Q != "" || len(q.Tags) > 0 || q.Author != "" || q.State != ""
+}
 
 func (q query) filter(limit int) post.Filter {
-	return post.Filter{Tags: q.Tags, Author: q.Author, Limit: limit}
+	return post.Filter{Tags: q.Tags, Author: q.Author, Limit: limit, State: q.State, Skip: q.Skip}
 }
 
 // terms splits a search into terms at whitespace, except within double
@@ -220,6 +234,8 @@ type threadRow struct {
 	Replies         int
 	Tags            []string
 	Matches         []matchRow
+	State           string
+	Pinned, Locked  bool
 }
 
 // matchRow is a post that matched a search.
@@ -240,6 +256,7 @@ func (p *pages) threadRow(t post.Thread) threadRow {
 		ID: t.ID, Title: t.Title, Author: parseWho(t.Author),
 		Created: p.stamp(t.Created), Active: p.stamp(t.LastActivity),
 		Replies: t.Replies, Tags: t.Tags,
+		State: t.State, Pinned: t.Pinned, Locked: t.Locked,
 	}
 }
 
@@ -309,8 +326,9 @@ type threadsView struct {
 	// Terms are the search's, if it is one.
 	Terms []string
 	Rows  []threadRow
-	// More is the address that shows more threads, if more match.
-	More string
+	// Next and Prev are the addresses of the next and the previous pages,
+	// if there are.
+	Next, Prev string
 	// Jump is the post whose id the search is, if it exists.
 	Jump      int64
 	Tags      []tagRow
@@ -351,11 +369,9 @@ func (p *pages) threadsView(r *http.Request, b *post.Board, q query) (threadsVie
 			v.Rows = append(v.Rows, p.threadRow(t))
 		}
 	}
+	v.Next, v.Prev = q.pages(len(v.Rows))
 	if len(v.Rows) > q.N {
 		v.Rows = v.Rows[:q.N]
-		more := q
-		more.N = q.N + defaultLimit
-		v.More = more.URL()
 	}
 	tags, err := p.s.Store.Tags(ctx, b.ID)
 	if err != nil {
@@ -397,6 +413,7 @@ type postView struct {
 	Body          template.HTML
 	Root          bool
 	Reactions     []post.Reaction
+	Attachments   []attachmentRow
 }
 
 // participant is an author in a thread.
@@ -433,6 +450,7 @@ func (p *pages) threadView(b *post.Board, show post.Show) (threadView, error) {
 			ID: ps.ID, Thread: ps.Thread, Who: parseWho(ps.Author), Author: ps.Author,
 			Created: p.stamp(ps.Created), Editor: ps.Editor,
 			Tags: ps.Tags, Body: body, Root: ps.IsRoot(), Reactions: ps.Reactions,
+			Attachments: attachmentRows(b.ID, ps),
 		}
 		if ps.Edited != "" {
 			e := p.stamp(ps.Edited)
@@ -465,6 +483,8 @@ type editing struct {
 	Root            bool
 	Author, Harness string
 	ThreadTitle     string
+	Attachments     []attachmentRow
+	Move            moveForm
 }
 
 // composeView is the data of /b/BOARD/new and /b/BOARD/t/ID/edit.

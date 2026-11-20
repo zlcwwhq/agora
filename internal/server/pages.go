@@ -66,11 +66,13 @@ func (p *pages) route(mux *http.ServeMux) {
 	thread := handlers{http.MethodGet: p.inBoard(p.thread)}
 	if p.forms {
 		home[http.MethodPost] = p.createBoard
-		thread[http.MethodPost] = p.inBoard(p.reply)
-		mux.HandleFunc("/b/{board}/new", p.handle(handlers{http.MethodGet: p.inBoard(p.newForm), http.MethodPost: p.inBoard(p.newThread)}))
-		mux.HandleFunc("/b/{board}/t/{id}/edit", p.handle(handlers{http.MethodGet: p.inBoard(p.editForm), http.MethodPost: p.inBoard(p.edit)}))
+		thread[http.MethodPost] = withFiles(p.inBoard(p.reply))
+		mux.HandleFunc("/b/{board}/new", p.handle(handlers{http.MethodGet: p.inBoard(p.newForm), http.MethodPost: withFiles(p.inBoard(p.newThread))}))
+		mux.HandleFunc("/b/{board}/t/{id}/edit", p.handle(handlers{http.MethodGet: p.inBoard(p.editForm), http.MethodPost: withFiles(p.inBoard(p.edit))}))
 		mux.HandleFunc("/b/{board}/t/{id}/delete", p.handle(handlers{http.MethodPost: p.inBoard(p.remove)}))
+		p.routeThreadForms(mux)
 	}
+	p.routeAttachments(mux)
 	mux.HandleFunc("/{$}", p.handle(home))
 	// Registered so that its redirect has the pages' headers, rather than
 	// the one that ServeMux would give.
@@ -238,6 +240,7 @@ type form struct {
 	Title, Tags, Body, Reason, Nonce string
 	// HasTitle says whether the form has a title field.
 	HasTitle bool
+	fileFields
 }
 
 // newNonce returns a random nonce for a form.
@@ -251,10 +254,10 @@ func newNonce() string {
 
 // readForm reads what a form sent, answering the request if it can't.
 func (p *pages) readForm(w http.ResponseWriter, r *http.Request) (form, bool) {
-	if err := r.ParseForm(); err != nil {
+	if err := parseForm(r); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			p.fail(w, r, http.StatusRequestEntityTooLarge, "This is larger than 1 MiB, which is more than a form may send.")
+			p.fail(w, r, http.StatusRequestEntityTooLarge, fmt.Sprintf("This is larger than %d MiB, which is more than this form may send.", tooLarge.Limit>>20))
 		} else {
 			p.fail(w, r, http.StatusBadRequest, "Can't read the form: "+err.Error())
 		}
@@ -262,7 +265,8 @@ func (p *pages) readForm(w http.ResponseWriter, r *http.Request) (form, bool) {
 	}
 	f := r.PostForm
 	_, hasTitle := f["title"]
-	return form{Title: f.Get("title"), Tags: f.Get("tags"), Body: f.Get("body"), Nonce: f.Get("nonce"), HasTitle: hasTitle}, true
+	typed := form{Title: f.Get("title"), Tags: f.Get("tags"), Body: f.Get("body"), Nonce: f.Get("nonce"), HasTitle: hasTitle}
+	return p.readFiles(w, r, typed)
 }
 
 // pathID returns the post that the address names, answering the request,
@@ -377,6 +381,9 @@ func (p *pages) reply(w http.ResponseWriter, r *http.Request, b *post.Board, f f
 		return
 	}
 	pub, _, err := p.s.Store.Reply(r.Context(), p.s.Person, b.ID, id, post.NewReply{Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce})
+	if err == nil {
+		err = p.attachFiles(r, b.ID, "replied", pub.ID, f)
+	}
 	if post.KindOf(err) == post.Invalid {
 		f.Reason = sentence(err.Error())
 		p.showThread(w, r, b, http.StatusBadRequest, id, f)
@@ -401,6 +408,9 @@ func (p *pages) newThread(w http.ResponseWriter, r *http.Request, b *post.Board,
 	pub, _, err := p.s.Store.Post(r.Context(), p.s.Person, b.ID, post.NewThread{
 		Title: f.Title, Tags: post.SplitTags(f.Tags), Body: f.Body, Nonce: f.Nonce,
 	})
+	if err == nil {
+		err = p.attachFiles(r, b.ID, "posted", pub.ID, f)
+	}
 	if post.KindOf(err) == post.Invalid {
 		f.Reason = sentence(err.Error())
 		p.render(w, r, http.StatusBadRequest, "compose", composeView{base: p.base(b, "new", "New thread", query{}), Form: f})
@@ -431,6 +441,7 @@ func (p *pages) editForm(w http.ResponseWriter, r *http.Request, b *post.Board, 
 func (p *pages) showEdit(w http.ResponseWriter, r *http.Request, b *post.Board, status int, cur post.Post, f form) {
 	v := composeView{base: p.base(b, "", fmt.Sprintf("Edit #%d", cur.ID), query{}), Form: f, Editing: &editing{
 		ID: cur.ID, Thread: cur.Thread, Root: cur.IsRoot(), Author: cur.Author, Harness: cur.Harness,
+		Attachments: attachmentRows(b.ID, cur), Move: f.move,
 	}}
 	if !cur.IsRoot() {
 		if show, err := p.s.Store.Show(r.Context(), b.ID, cur.Thread); err == nil {
@@ -460,6 +471,9 @@ func (p *pages) edit(w http.ResponseWriter, r *http.Request, b *post.Board, f fo
 		e.Body = &f.Body
 	}
 	edited, err := p.s.Store.Edit(r.Context(), p.s.Person, b.ID, id, e)
+	if err == nil {
+		err = p.changeFiles(r, b.ID, id, f)
+	}
 	if post.KindOf(err) == post.Invalid {
 		cur, gerr := p.s.Store.Get(r.Context(), b.ID, id)
 		if gerr != nil {

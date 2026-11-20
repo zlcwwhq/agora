@@ -33,6 +33,7 @@ type Store interface {
 	Unread(ctx context.Context, who post.Identity, board string, req post.UnreadRequest) (post.Unread, error)
 	History(ctx context.Context, board string, id int64) (post.History, error)
 	React(ctx context.Context, who post.Identity, board string, id int64, req post.React) (post.Reacted, error)
+	ThreadStore
 }
 
 // Options configure a server.
@@ -109,7 +110,7 @@ func (s *server) guard(next http.Handler) http.Handler {
 			}
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		r.Body = &limitedBody{w: w, body: r.Body, limit: maxBody}
 		next.ServeHTTP(w, r)
 	})
 }
