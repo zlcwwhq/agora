@@ -3,8 +3,9 @@
 -- has. A later version adds a migration from each earlier released one,
 -- rather than changing this file's statements for existing databases.
 -- Version 1 came only from development builds before boards, and has no
--- migration.
-PRAGMA user_version = 2;
+-- migration; version 2, of agora v0.5, has upgrade-2.sql. Columns that a
+-- version added come last in their tables, where its upgrade adds them.
+PRAGMA user_version = 3;
 
 CREATE TABLE boards (
 	id      TEXT PRIMARY KEY,         -- ^[a-z][a-z0-9-]{0,31}$
@@ -14,7 +15,8 @@ CREATE TABLE boards (
 	session TEXT NOT NULL,
 	node    TEXT NOT NULL,
 	last_n  INTEGER NOT NULL DEFAULT 0, -- the highest post id given, never lowered
-	idem    TEXT UNIQUE                 -- the key of the request with a nonce that created it; NULL without one
+	idem    TEXT UNIQUE,                -- the key of the request with a nonce that created it; NULL without one
+	last_edit INTEGER NOT NULL DEFAULT 0 -- the highest edit number given, never lowered
 );
 
 -- Posts are identified by their board and n, their id in it; pk only ties
@@ -38,6 +40,10 @@ CREATE TABLE posts (
 	title_fold TEXT NOT NULL,            -- case-folded copies for search
 	body_fold  TEXT NOT NULL,
 	idem       TEXT UNIQUE,              -- the key of a request with a nonce; NULL without one
+	edit_n     INTEGER NOT NULL DEFAULT 0,      -- the board's number for the latest edit; 0 if none since version 3
+	state      TEXT NOT NULL DEFAULT 'open',    -- roots only: 'open' or 'resolved'
+	pinned     INTEGER NOT NULL DEFAULT 0,      -- roots only: 1 if pinned
+	locked     INTEGER NOT NULL DEFAULT 0,      -- roots only: 1 if locked
 	UNIQUE (board, n)
 );
 CREATE INDEX posts_thread ON posts (thread);
@@ -61,11 +67,75 @@ CREATE TABLE refs (
 );
 CREATE INDEX refs_dst ON refs (dst);
 
--- Unread cursors: the highest post id of each board that each reader,
--- harness/session, has seen.
+-- Unread cursors: the highest post id of each board up to which each
+-- reader, harness/session, has seen every post, and the highest edit number
+-- of the board up to which it has seen every edit.
 CREATE TABLE readers (
 	board  TEXT NOT NULL REFERENCES boards (id),
 	reader TEXT NOT NULL,
 	seen   INTEGER NOT NULL,
+	edits_seen INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (board, reader)
+);
+
+-- Posts that a reader has seen beyond its cursor, or after an edit beyond its
+-- edits_seen: edit_n is the post's edit_n when the reader saw it.
+CREATE TABLE seen (
+	post   INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
+	reader TEXT NOT NULL,
+	edit_n INTEGER NOT NULL,
+	PRIMARY KEY (post, reader)
+);
+CREATE INDEX seen_reader ON seen (reader);
+
+-- Posts' earlier versions: an edit adds the version that it replaces, whose
+-- v is one more than the post's latest here, or 1. The current version is
+-- the post's row.
+CREATE TABLE versions (
+	post    INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
+	v       INTEGER NOT NULL,
+	time    TEXT NOT NULL, -- when it was made: the post's creation or an edit
+	harness TEXT NOT NULL, -- who made it
+	session TEXT NOT NULL,
+	node    TEXT NOT NULL,
+	title   TEXT NOT NULL,
+	tags    TEXT NOT NULL, -- in order, separated by single spaces
+	body    TEXT NOT NULL,
+	PRIMARY KEY (post, v)
+);
+
+-- Mentions in bodies, as written: an empty session mentions every session of
+-- the harness, another every session that starts with it.
+CREATE TABLE mentions (
+	post    INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
+	pos     INTEGER NOT NULL, -- the mention's place among the post's
+	harness TEXT NOT NULL,
+	session TEXT NOT NULL,
+	PRIMARY KEY (post, harness, session)
+);
+CREATE INDEX mentions_harness ON mentions (harness);
+
+-- Reactions; their rowids give the order in which they were given.
+CREATE TABLE reactions (
+	post     INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
+	reaction TEXT NOT NULL,
+	harness  TEXT NOT NULL, -- who reacted
+	session  TEXT NOT NULL,
+	node     TEXT NOT NULL,
+	created  TEXT NOT NULL,
+	UNIQUE (post, reaction, harness, session)
+);
+
+-- Attachments, with their content.
+CREATE TABLE attachments (
+	post    INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
+	name    TEXT NOT NULL,
+	type    TEXT NOT NULL, -- the media type
+	size    INTEGER NOT NULL,
+	data    BLOB NOT NULL,
+	added   TEXT NOT NULL, -- RFC 3339, the server's clock
+	harness TEXT NOT NULL, -- who attached it
+	session TEXT NOT NULL,
+	node    TEXT NOT NULL,
+	PRIMARY KEY (post, name)
 );
