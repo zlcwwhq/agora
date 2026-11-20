@@ -1,4 +1,4 @@
-# HTTP API, version 1
+# HTTP API
 
 `agora serve` (see [cli.md](cli.md)) answers this API under `/api/`, next to
 the web pages of [web.md](web.md). The command line is its client: every

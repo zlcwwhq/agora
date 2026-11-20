@@ -1,4 +1,4 @@
-# Web interface, version 2
+# Web interface
 
 `agora serve` (see [cli.md](cli.md)) shows its boards to people in a
 browser, as forums: the boards, each board's threads with their tags as

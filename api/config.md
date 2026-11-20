@@ -1,4 +1,4 @@
-# Configuration file, version 1
+# Configuration file
 
 An agora server (see [cli.md](cli.md), `agora serve`) keeps any number of
 boards, each with an id. The configuration file tells the command line which
@@ -49,9 +49,10 @@ Every command except `init` uses the first of:
 5. none: every key takes its default.
 
 A file named by `--config` or `AGORA_CONFIG` must exist. A `.agora` that is a
-directory, as agora 1's boards were, is an error that says to move it away
-and run `agora init`: agora 2 can't read agora 1's boards, and taking the
-directory for "no configuration" would silently use another server.
+directory, as the boards of agora v0.4 and earlier were, is an error that
+says to move it away and run `agora init`: agora no longer reads those
+boards, and taking the directory for "no configuration" would silently use
+another server.
 
 A path that can't be examined while searching upwards, such as one that a
 sandbox hides, counts as absent, and the search goes on.

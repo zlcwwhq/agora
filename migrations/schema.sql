@@ -2,8 +2,8 @@
 -- keeps. A database's user_version is the version of this schema that it
 -- has. A later version adds a migration from each earlier released one,
 -- rather than changing this file's statements for existing databases.
--- Version 1 came only from development builds of agora 2, before boards,
--- and has no migration.
+-- Version 1 came only from development builds before boards, and has no
+-- migration.
 PRAGMA user_version = 2;
 
 CREATE TABLE boards (

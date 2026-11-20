@@ -12,5 +12,5 @@ var Schema string
 
 // Version is the user_version that Schema sets. A database with a higher
 // version comes from a later agora, and is refused, as is one with version
-// 1, which only development builds of agora 2 made, before boards.
+// 1, which only development builds made, before boards.
 const Version = 2
