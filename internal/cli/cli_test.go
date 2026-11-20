@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 // testEnv is a process environment of its own: a working directory, a home,
@@ -22,7 +24,7 @@ type testEnv struct {
 }
 
 func newEnv(t *testing.T) *testEnv {
-	root := t.TempDir()
+	root := testdir.New(t)
 	// The working directory is in the home directory, so that the search
 	// for .agora stops there, below the real home of the machine that runs
 	// the tests.
@@ -89,7 +91,7 @@ func (e *testEnv) serve(t *testing.T, args ...string) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	pr, pw := io.Pipe()
 	var errb bytes.Buffer
-	env := e.env(append([]string{"serve", "--addr", "127.0.0.1:0", "--db", filepath.Join(t.TempDir(), "board.db"), "--json"}, args...), nil, pw, &errb)
+	env := e.env(append([]string{"serve", "--addr", "127.0.0.1:0", "--db", filepath.Join(testdir.New(t), "board.db"), "--json"}, args...), nil, pw, &errb)
 	env.Context = ctx
 	done := make(chan int, 1)
 	go func() {
@@ -347,7 +349,7 @@ func TestServeForms(t *testing.T) {
 
 func TestServeLocksDatabase(t *testing.T) {
 	e := newEnv(t)
-	db := filepath.Join(t.TempDir(), "board.db")
+	db := filepath.Join(testdir.New(t), "board.db")
 	ctx, cancel := context.WithCancel(context.Background())
 	pr, pw := io.Pipe()
 	env := e.env([]string{"serve", "--addr", "127.0.0.1:0", "--db", db, "--json"}, nil, pw, io.Discard)

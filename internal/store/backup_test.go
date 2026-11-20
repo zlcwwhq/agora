@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zlcwwhq/agora/internal/post"
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 func TestBackup(t *testing.T) {
@@ -27,7 +28,7 @@ func TestBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	copyPath := filepath.Join(t.TempDir(), "copy.db")
+	copyPath := filepath.Join(testdir.New(t), "copy.db")
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, rc); err != nil {
 		t.Fatal(err)

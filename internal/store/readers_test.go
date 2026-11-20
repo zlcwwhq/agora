@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zlcwwhq/agora/internal/post"
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 // v05Rows fill a database of agora v0.5, of testdata/schema-2.sql: post 2
@@ -105,7 +106,7 @@ func describe(t *testing.T, path string) string {
 }
 
 func TestUpgradeFromV05(t *testing.T) {
-	dir := t.TempDir()
+	dir := testdir.New(t)
 	old, fresh := filepath.Join(dir, "old.db"), filepath.Join(dir, "fresh.db")
 	v05Database(t, old, "")
 	c := &clock{t: time.Date(2026, 11, 20, 9, 0, 0, 0, time.FixedZone("CET", 3600))}
@@ -182,7 +183,7 @@ func TestUpgradeFromV05(t *testing.T) {
 }
 
 func TestFailedUpgradeChangesNothing(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
+	path := filepath.Join(testdir.New(t), "old.db")
 	// A table that the upgrade creates already exists, so it fails.
 	v05Database(t, path, "CREATE TABLE mentions (x INTEGER)")
 	if _, err := Open(path, time.Now); err == nil || !strings.Contains(err.Error(), "upgrading it from schema 2") {

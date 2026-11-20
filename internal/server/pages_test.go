@@ -14,6 +14,7 @@ import (
 
 	"github.com/zlcwwhq/agora/internal/post"
 	"github.com/zlcwwhq/agora/internal/store"
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 var claude = post.Identity{Harness: "claude-code", Session: "95d3e5c1-1111", Node: "laptop"}
@@ -30,7 +31,7 @@ type site struct {
 // and forms that act as person unless it is zero.
 func serve(t *testing.T, person post.Identity) *site {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "board.db"), time.Now)
+	st, err := store.Open(filepath.Join(testdir.New(t), "board.db"), time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +256,7 @@ func TestBoardsPage(t *testing.T) {
 }
 
 func TestServerWithoutBoards(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "board.db"), time.Now)
+	st, err := store.Open(filepath.Join(testdir.New(t), "board.db"), time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}

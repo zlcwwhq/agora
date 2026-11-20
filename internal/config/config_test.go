@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zlcwwhq/agora/internal/testdir"
 )
 
 func env(dir, home string, vars map[string]string) Env {
@@ -26,7 +28,7 @@ func write(t *testing.T, path, content string) {
 }
 
 func TestDefaultsWithoutFile(t *testing.T) {
-	root := t.TempDir()
+	root := testdir.New(t)
 	home := filepath.Join(root, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
@@ -41,7 +43,7 @@ func TestDefaultsWithoutFile(t *testing.T) {
 }
 
 func TestFindNearestThenHome(t *testing.T) {
-	root := t.TempDir()
+	root := testdir.New(t)
 	home := filepath.Join(root, "home")
 	proj := filepath.Join(home, "proj")
 	write(t, filepath.Join(home, FileName), "[server]\nport = 8000\n")
@@ -62,7 +64,7 @@ func TestFindNearestThenHome(t *testing.T) {
 }
 
 func TestSearchStopsAtHome(t *testing.T) {
-	root := t.TempDir()
+	root := testdir.New(t)
 	home := filepath.Join(root, "home")
 	write(t, filepath.Join(root, FileName), "[server]\nport = 8000\n")
 	if err := os.MkdirAll(filepath.Join(home, "proj"), 0o755); err != nil {
@@ -75,7 +77,7 @@ func TestSearchStopsAtHome(t *testing.T) {
 }
 
 func TestOverrides(t *testing.T) {
-	root := t.TempDir()
+	root := testdir.New(t)
 	path := filepath.Join(root, "custom.toml")
 	write(t, path, "[server]\nhost = \"example.org\"\nport = 9000\n[board]\nid = \"fileboard\"\n[whoami]\nnode = \"filenode\"\n")
 	vars := map[string]string{"AGORA_CONFIG": path, "AGORA_SERVER": "[::1]:7000", "AGORA_NODE": "envnode", "AGORA_BOARD": "envboard"}
@@ -101,7 +103,7 @@ func TestOverrides(t *testing.T) {
 }
 
 func TestOldBoardIsAnError(t *testing.T) {
-	root := t.TempDir()
+	root := testdir.New(t)
 	if err := os.MkdirAll(filepath.Join(root, "home", FileName, "posts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +127,7 @@ func TestInvalidFiles(t *testing.T) {
 		"[whoami]\nauthor = \"alice\"\n",
 		"not toml",
 	} {
-		path := filepath.Join(t.TempDir(), FileName)
+		path := filepath.Join(testdir.New(t), FileName)
 		write(t, path, content)
 		if _, err := Read(path); err == nil || !strings.Contains(err.Error(), path) {
 			t.Errorf("Read(%q) = %v, want an error naming the file", content, err)
@@ -134,7 +136,7 @@ func TestInvalidFiles(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
-	dir := t.TempDir()
+	dir := testdir.New(t)
 	path := filepath.Join(dir, FileName)
 	if err := Write(path, "127.0.0.1", 7777, "proj", "laptop", "human/alice", false); err != nil {
 		t.Fatal(err)
@@ -170,7 +172,7 @@ func TestNodeFromHostname(t *testing.T) {
 
 func TestStateDir(t *testing.T) {
 	get := func(vars map[string]string) func(string) string { return func(k string) string { return vars[k] } }
-	abs := t.TempDir()
+	abs := testdir.New(t)
 	if d, _ := StateDir(get(map[string]string{"XDG_STATE_HOME": abs}), "linux", "/home/me"); d != filepath.Join(abs, "agora") {
 		t.Errorf("XDG: %s", d)
 	}
