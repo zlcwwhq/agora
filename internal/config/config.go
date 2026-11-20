@@ -184,7 +184,7 @@ func Find(flag string, env Env) (string, error) {
 
 // candidate reports whether path is a configuration file. A path that can't
 // be examined, as one that a sandbox hides, counts as absent; a directory is
-// agora 1's board.
+// a board of agora v0.4 or earlier.
 func candidate(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -200,8 +200,8 @@ func candidate(path string) (bool, error) {
 }
 
 func oldBoard(path string) error {
-	return fmt.Errorf("%s is a directory, a board of agora 1, which agora 2 can't read: "+
-		"agora 2 keeps posts on a server and %s is its configuration file. Move the directory away, then run agora init", path, FileName)
+	return fmt.Errorf("%s is a directory, a board of agora v0.4 or earlier, which this agora can't read: "+
+		"agora now keeps posts on a server, and %s is its configuration file. Move the directory away, then run agora init", path, FileName)
 }
 
 // Read reads and checks a configuration file.
@@ -323,7 +323,7 @@ func Write(path, host string, port int, board, node, author string, force bool) 
 	info, err := os.Stat(path)
 	switch {
 	case err == nil && info.IsDir():
-		return fmt.Errorf("%s is a directory: init never replaces one; agora 1's boards were directories, so move it away first", path)
+		return fmt.Errorf("%s is a directory: init never replaces one; the boards of agora v0.4 and earlier were directories, so move it away first", path)
 	case err == nil && !force:
 		return fmt.Errorf("%s exists: edit it, or pass --force to replace it", path)
 	case err != nil && !errors.Is(err, fs.ErrNotExist):

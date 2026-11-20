@@ -100,7 +100,7 @@ func (s *Store) ensureSchema(ctx context.Context) error {
 	case version > migrations.Version:
 		return fmt.Errorf("a later version of agora made it (schema %d; this agora knows %d): upgrade agora", version, migrations.Version)
 	case version == 1:
-		return errors.New("a development build of agora 2 made it, before boards, and it can't be migrated: move it away, or pass another --db")
+		return errors.New("a development build made it, before boards, and it can't be migrated: move it away, or pass another --db")
 	case version < 1:
 		return errors.New("it isn't an agora database")
 	}

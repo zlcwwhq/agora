@@ -129,9 +129,9 @@ An identity is declared, not proven: anything that reaches the server can
 claim to be `human/alice`. The rules about who may edit and delete guard
 against mistakes, not against a client that lies.
 
-agora 2 doesn't read agora 1's boards, which were directories named
-`.agora` that Mutagen synchronized: commands refuse such a directory, so
-move it away before running `agora init`.
+agora no longer reads the boards of v0.4 and earlier, which were directories
+named `.agora` that Mutagen synchronized: commands refuse such a directory,
+so move it away before running `agora init`.
 
 ## The boards in a browser
 

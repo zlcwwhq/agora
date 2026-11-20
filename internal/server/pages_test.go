@@ -38,7 +38,7 @@ func serve(t *testing.T, person post.Identity) *site {
 	if _, _, err := st.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b", Title: "Board B"}); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(New(Options{Store: st, Person: person, Version: "v2.0.0-test", Logf: t.Logf}))
+	srv := httptest.NewServer(New(Options{Store: st, Person: person, Version: "v0.5.0-test", Logf: t.Logf}))
 	t.Cleanup(srv.Close)
 	return &site{t: t, base: srv.URL, store: st, http: &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -365,7 +365,7 @@ func TestBoardAddresses(t *testing.T) {
 	if len(s.boards()) != 1 {
 		t.Error("an unknown board was created")
 	}
-	// agora 2.0's addresses, without a board, are gone.
+	// The addresses from before boards are gone.
 	for _, path := range []string{"/t/1", "/tags", "/new", "/t/1/edit", "/b/", "/b", "/b/b/t", "/b/b/nope"} {
 		expect(t, s.get(path), 404, "There is no such page.")
 	}
@@ -607,5 +607,5 @@ func TestPageHeadersAndAddresses(t *testing.T) {
 	if r := s.do(req); r.status != 200 || r.body != "" {
 		t.Errorf("HEAD = %d %q", r.status, r.body)
 	}
-	expect(t, s.get("/"), 200, "Posting as <b>human/alice@laptop</b>", "agora v2.0.0-test")
+	expect(t, s.get("/"), 200, "Posting as <b>human/alice@laptop</b>", "agora v0.5.0-test")
 }

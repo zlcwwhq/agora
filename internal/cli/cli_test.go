@@ -50,7 +50,7 @@ func (e *testEnv) env(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 		Stdout:   stdout,
 		Stderr:   stderr,
 		Now:      time.Now,
-		Version:  "v2.0.0-test",
+		Version:  "v0.5.0-test",
 	}
 }
 
@@ -305,7 +305,7 @@ func TestUsageErrors(t *testing.T) {
 			t.Errorf("agora %s: exit %d, want 2: %s", strings.Join(args, " "), r.code, r.err)
 		}
 	}
-	if out := e.ok(t, "--version"); out != "agora v2.0.0-test\n" {
+	if out := e.ok(t, "--version"); out != "agora v0.5.0-test\n" {
 		t.Errorf("--version = %q", out)
 	}
 }
@@ -325,11 +325,11 @@ func TestOldBoardDirectory(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(e.home, ".agora", "posts", "wsl"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if r := e.run("whoami"); r.code != 1 || !strings.Contains(r.err, "agora 1") {
-		t.Errorf("whoami with an agora 1 board: %+v", r)
+	if r := e.run("whoami"); r.code != 1 || !strings.Contains(r.err, "a board of agora v0.4 or earlier") {
+		t.Errorf("whoami with an old board: %+v", r)
 	}
 	if r := e.run("init", "--config", filepath.Join(e.home, ".agora")); r.code != 1 || !strings.Contains(r.err, "directory") {
-		t.Errorf("init over an agora 1 board: %+v", r)
+		t.Errorf("init over an old board: %+v", r)
 	}
 }
 

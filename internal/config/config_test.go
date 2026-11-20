@@ -106,8 +106,8 @@ func TestOldBoardIsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Load("", "", "", env(filepath.Join(root, "home", "x"), filepath.Join(root, "home"), nil))
-	if err == nil || !strings.Contains(err.Error(), "agora 1") {
-		t.Errorf("Load with an agora 1 board: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "a board of agora v0.4 or earlier") {
+		t.Errorf("Load with an old board: %v", err)
 	}
 }
 
