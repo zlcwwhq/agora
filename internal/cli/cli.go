@@ -78,6 +78,9 @@ type opts struct {
 	inTitle, inBody    bool
 	peek               bool
 	since              string
+	addTags, rmTags    stringList
+	toMe, undo         bool
+	thread             string
 	addr, db           string
 	set                map[string]bool
 }
@@ -115,12 +118,18 @@ var commands = []command{
 			fs.Var(&o.tags, "t", "a `tag`, repeatable")
 			bodyFlags(fs, o)
 		}},
-	{name: "edit", args: "ID [--title TITLE] [-t TAG]... [--no-tags] [-m BODY | -f FILE]", summary: "change a post in place", run: runEdit, positional: 1,
+	{name: "edit", args: "ID [--title TITLE] [-t TAG]... [--no-tags] [--add-tag TAG]... [--remove-tag TAG]... [-m BODY | -f FILE]", summary: "change a post in place", run: runEdit, positional: 1,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.StringVar(&o.title, "title", "", "the thread's new `title`")
 			fs.Var(&o.tags, "t", "a `tag` that replaces all of the post's tags, repeatable")
 			fs.BoolVar(&o.noTags, "no-tags", false, "remove the post's tags")
+			singleTagFlags(fs, o)
 			bodyFlags(fs, o)
+		}},
+	{name: "history", args: "ID", summary: "show every version of a post", run: runHistory, positional: 1},
+	{name: "react", args: "ID REACTION [--undo]", summary: "react to a post, such as with ack, or take the reaction back", run: runReact, positional: 2,
+		flags: func(fs *flag.FlagSet, o *opts) {
+			fs.BoolVar(&o.undo, "undo", false, "take the reaction back")
 		}},
 	{name: "delete", args: "ID", summary: "delete a post for good, and a thread's first post with its thread", run: runDelete, positional: 1},
 	{name: "show", args: "ID", summary: "show the thread that contains a post", run: runShow, positional: 1},
@@ -139,8 +148,10 @@ var commands = []command{
 			fs.IntVar(&o.limit, "n", post.DefaultLimit, "at most `N` threads")
 		}},
 	{name: "tags", summary: "list tags by use", run: runTags},
-	{name: "unread", args: "[--peek] [--since DURATION]", summary: "show posts this reader hasn't seen", run: runUnread,
+	{name: "unread", args: "[--to-me] [--thread ID] [--peek] [--since DURATION]", summary: "show posts this reader hasn't seen, and those edited since it saw them", run: runUnread,
 		flags: func(fs *flag.FlagSet, o *opts) {
+			fs.BoolVar(&o.toMe, "to-me", false, "only the posts of threads where this reader posted, and those that mention it")
+			fs.StringVar(&o.thread, "thread", "", "only the posts of the thread that contains post `ID`")
 			fs.BoolVar(&o.peek, "peek", false, "don't mark them seen")
 			fs.StringVar(&o.since, "since", "", "for a new reader, also posts created within `DURATION`, such as 90m or 2d")
 		}},
@@ -696,6 +707,12 @@ func runEdit(c *ctx, args []string) error {
 	switch {
 	case c.o.noTags && len(c.o.tags) > 0:
 		return usagef("-t and --no-tags exclude each other")
+	case (c.o.noTags || len(c.o.tags) > 0) && (len(c.o.addTags) > 0 || len(c.o.rmTags) > 0):
+		return usagef("--add-tag and --remove-tag change single tags, so they exclude -t and --no-tags")
+	case len(c.o.addTags) > 0 || len(c.o.rmTags) > 0:
+		if err := c.singleTags(&e); err != nil {
+			return err
+		}
 	case c.o.noTags:
 		e.Tags = &[]string{}
 	case len(c.o.tags) > 0:
@@ -713,7 +730,7 @@ func runEdit(c *ctx, args []string) error {
 		e.Body = &body
 	}
 	if e.Empty() {
-		return usagef("edit needs something to change: --title, -t, --no-tags, -m, or -f")
+		return usagef("edit needs something to change: --title, -t, --no-tags, --add-tag, --remove-tag, -m, or -f")
 	}
 	cl, err := c.client(true)
 	if err != nil {
@@ -815,6 +832,7 @@ func (c *ctx) printPost(p post.Post, focus bool, context string) {
 	if p.Body != "" {
 		c.printf("%s", p.Body)
 	}
+	c.printReactions(p.Reactions)
 	c.printf("\n")
 }
 
@@ -944,11 +962,18 @@ func runUnread(c *ctx, _ []string) error {
 			return usageError{err.Error()}
 		}
 	}
+	req := post.UnreadRequest{Peek: c.o.peek, Since: int64(since / time.Second), ToMe: c.o.toMe}
+	if c.o.set["thread"] {
+		var err error
+		if req.Thread, err = c.id(c.o.thread); err != nil {
+			return err
+		}
+	}
 	cl, err := c.client(true)
 	if err != nil {
 		return err
 	}
-	u, err := cl.Unread(c.ctx(), post.UnreadRequest{Peek: c.o.peek, Since: int64(since / time.Second)})
+	u, err := cl.Unread(c.ctx(), req)
 	if err != nil {
 		return err
 	}
@@ -958,7 +983,7 @@ func runUnread(c *ctx, _ []string) error {
 	if c.o.json {
 		return c.printJSON(u)
 	}
-	if len(u.Posts) == 0 {
+	if len(u.Posts) == 0 && len(u.Edited) == 0 {
 		c.printf("no unread posts\n")
 	}
 	for _, p := range u.Posts {
@@ -966,7 +991,8 @@ func runUnread(c *ctx, _ []string) error {
 		if !p.IsRoot() {
 			context = fmt.Sprintf("in thread #%d", p.Thread)
 		}
-		c.printPost(p, false, context)
+		c.printPost(p, false, forMe(context, p, cl.Who))
 	}
+	c.printEdited(u.Edited, cl.Who)
 	return nil
 }

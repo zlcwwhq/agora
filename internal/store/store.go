@@ -67,9 +67,9 @@ func busy(err error) bool {
 	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
 }
 
-// ensureSchema creates the schema in an empty database, and refuses one that
-// isn't agora's or that it can't use. Its exclusive transaction takes the
-// lock that Open promises.
+// ensureSchema creates the schema in an empty database, upgrades one that an
+// earlier release made, and refuses one that isn't agora's or that it can't
+// use. Its exclusive transaction takes the lock that Open promises.
 func (s *Store) ensureSchema(ctx context.Context) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
@@ -103,6 +103,10 @@ func (s *Store) ensureSchema(ctx context.Context) error {
 		return errors.New("a development build made it, before boards, and it can't be migrated: move it away, or pass another --db")
 	case version < 1:
 		return errors.New("it isn't an agora database")
+	case version < migrations.Version:
+		if err := upgrade(ctx, conn, version); err != nil {
+			return fmt.Errorf("upgrading it from schema %d: %w", version, err)
+		}
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return err
@@ -335,8 +339,13 @@ func (s *Store) publish(ctx context.Context, who post.Identity, board string, to
 		if err := setRefs(ctx, tx, pk, board, pub.ID, body); err != nil {
 			return err
 		}
-		// A new reader starts reading at its first post.
-		_, err = tx.ExecContext(ctx, "INSERT INTO readers (board, reader, seen) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", board, who.Reader(), pub.ID)
+		if err := setMentions(ctx, tx, pk, body); err != nil {
+			return err
+		}
+		// A new reader starts reading at its first post, having seen every
+		// edit until then.
+		_, err = tx.ExecContext(ctx, `INSERT INTO readers (board, reader, seen, edits_seen)
+			SELECT ?, ?, ?, last_edit FROM boards WHERE id = ? ON CONFLICT DO NOTHING`, board, who.Reader(), pub.ID, board)
 		created = true
 		return err
 	})
@@ -429,8 +438,8 @@ func column[T any](ctx context.Context, q querier, query string, args ...any) ([
 	return out, rows.Close()
 }
 
-// rows returns the posts that a query of postSelect selects, with their tags
-// and references.
+// rows returns the posts that a query of postSelect selects, with their tags,
+// references, and what readerFields adds.
 func rows(ctx context.Context, q querier, query string, args ...any) ([]row, error) {
 	rs, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -454,6 +463,9 @@ func rows(ctx context.Context, q querier, query string, args ...any) ([]row, err
 			return nil, err
 		}
 		if r.Refs, err = column[int64](ctx, q, "SELECT d.n FROM refs x JOIN posts d ON d.pk = x.dst WHERE x.src = ? ORDER BY x.pos", r.pk); err != nil {
+			return nil, err
+		}
+		if err := readerFields(ctx, q, r); err != nil {
 			return nil, err
 		}
 	}
@@ -494,10 +506,11 @@ func (s *Store) Get(ctx context.Context, board string, id int64) (post.Post, err
 	return out, err
 }
 
-// Edit changes a post's fields that e sets.
+// Edit changes a post's fields that e sets. An edit that changes them keeps
+// the version that it replaces.
 func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id int64, e post.Edit) (post.Post, error) {
-	if e.Empty() {
-		return post.Post{}, post.Errorf(post.Invalid, "nothing to change: give a title, tags, or a body")
+	if err := e.Check(); err != nil {
+		return post.Post{}, err
 	}
 	var out post.Post
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -509,7 +522,7 @@ func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id in
 		if err := who.MayChange(p, "edit"); err != nil {
 			return err
 		}
-		title, body, tags := p.Title, p.Body, p.Tags
+		title, body := p.Title, p.Body
 		if e.Title != nil {
 			if !p.IsRoot() {
 				return post.Errorf(post.Invalid, "post #%d is a reply: only a thread's first post has a title", id)
@@ -528,18 +541,21 @@ func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id in
 				return err
 			}
 		}
-		if e.Tags != nil {
-			if tags, err = post.Tags(*e.Tags); err != nil {
-				return err
-			}
+		tags, err := e.NewTags(p.Tags)
+		if err != nil {
+			return err
 		}
 		if title == p.Title && body == p.Body && slices.Equal(tags, p.Tags) {
 			out = p
 			return nil
 		}
+		editN, err := keepVersion(ctx, tx, board, r)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE posts SET title = ?, body = ?, title_fold = ?, body_fold = ?,
-			edited = ?, editor_harness = ?, editor_session = ?, editor_node = ? WHERE pk = ?`,
-			title, body, post.Fold(title), post.Fold(body), s.stamp(), who.Harness, who.Session, who.Node, r.pk); err != nil {
+			edited = ?, editor_harness = ?, editor_session = ?, editor_node = ?, edit_n = ? WHERE pk = ?`,
+			title, body, post.Fold(title), post.Fold(body), s.stamp(), who.Harness, who.Session, who.Node, editN, r.pk); err != nil {
 			return err
 		}
 		if !slices.Equal(tags, p.Tags) {
@@ -549,6 +565,9 @@ func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id in
 		}
 		if body != p.Body {
 			if err := setRefs(ctx, tx, r.pk, board, id, body); err != nil {
+				return err
+			}
+			if err := setMentions(ctx, tx, r.pk, body); err != nil {
 				return err
 			}
 		}
@@ -576,9 +595,9 @@ func (s *Store) Delete(ctx context.Context, who post.Identity, board string, id 
 				return err
 			}
 		}
-		// The foreign keys remove the thread's replies, the posts' tags and
-		// references, and the references to them, and clear the replies'
-		// reply_to.
+		// The foreign keys remove the thread's replies, the posts' tags,
+		// references, versions, mentions, reactions, and seen marks, and the
+		// references to them, and clear the replies' reply_to.
 		_, err = tx.ExecContext(ctx, "DELETE FROM posts WHERE pk = ?", r.pk)
 		return err
 	})
@@ -921,53 +940,6 @@ func (s *Store) Harnesses(ctx context.Context, board string) ([]post.HarnessCoun
 			out = append(out, hc)
 		}
 		return rs.Close()
-	})
-	return out, err
-}
-
-// Unread returns the posts of a board that the identity's reader hasn't
-// seen, and marks every post of the board seen unless req.Peek.
-func (s *Store) Unread(ctx context.Context, who post.Identity, board string, req post.UnreadRequest) (post.Unread, error) {
-	if req.Since < 0 {
-		return post.Unread{}, post.Errorf(post.Invalid, "since must be at least 0")
-	}
-	var out post.Unread
-	err := s.tx(ctx, func(tx *sql.Tx) error {
-		if err := checkBoard(ctx, tx, board); err != nil {
-			return err
-		}
-		var seen int64
-		err := tx.QueryRowContext(ctx, "SELECT seen FROM readers WHERE board = ? AND reader = ?", board, who.Reader()).Scan(&seen)
-		if errors.Is(err, sql.ErrNoRows) {
-			out.NewReader = true
-			if req.Since > 0 {
-				cutoff := s.now().Add(-time.Duration(req.Since) * time.Second).Unix()
-				err = tx.QueryRowContext(ctx, `SELECT coalesce(max(n), 0) FROM posts
-					WHERE board = ? AND CAST(strftime('%s', created) AS INTEGER) < ?`, board, cutoff).Scan(&seen)
-			} else {
-				err = tx.QueryRowContext(ctx, "SELECT last_n FROM boards WHERE id = ?", board).Scan(&seen)
-			}
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, "INSERT INTO readers (board, reader, seen) VALUES (?, ?, ?)", board, who.Reader(), seen); err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
-		}
-		rs, err := rows(ctx, tx, postSelect+`WHERE p.board = ? AND p.n > ? AND NOT (p.harness = ? AND p.session = ?)
-			ORDER BY p.n`, board, seen, who.Harness, who.Session)
-		if err != nil {
-			return err
-		}
-		out.Posts = posts(rs)
-		if req.Peek {
-			return nil
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE readers SET seen = max(seen, (SELECT last_n FROM boards WHERE id = ?))
-			WHERE board = ? AND reader = ?`, board, board, who.Reader())
-		return err
 	})
 	return out, err
 }

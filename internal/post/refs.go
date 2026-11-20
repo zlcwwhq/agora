@@ -12,23 +12,8 @@ import (
 func Refs(body string) []int64 {
 	out := []int64{}
 	seen := map[int64]bool{}
-	var fenceChar byte
-	var fenceLen int
-	for _, line := range strings.Split(body, "\n") {
-		if char, n, closing := fence(line); n > 0 {
-			if fenceLen == 0 {
-				fenceChar, fenceLen = char, n
-				continue
-			}
-			if char == fenceChar && n >= fenceLen && closing {
-				fenceLen = 0
-				continue
-			}
-		}
-		if fenceLen > 0 {
-			continue
-		}
-		for _, id := range lineRefs(blankCodeSpans(line)) {
+	for _, line := range codeFreeLines(body) {
+		for _, id := range lineRefs(line) {
 			if !seen[id] {
 				seen[id] = true
 				out = append(out, id)

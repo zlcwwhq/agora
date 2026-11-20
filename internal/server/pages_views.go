@@ -17,6 +17,7 @@ import (
 var funcs = template.FuncMap{
 	"icon": icon,
 	"hue":  hue,
+	"join": strings.Join,
 	// bucket rounds a percentage up to a multiple of 5, a w-N class.
 	"bucket": func(percent int) int { return min(max((percent+4)/5*5, 5), 100) },
 	"plural": func(n int, one, many string) string {
@@ -395,6 +396,7 @@ type postView struct {
 	Tags          []string
 	Body          template.HTML
 	Root          bool
+	Reactions     []post.Reaction
 }
 
 // participant is an author in a thread.
@@ -423,14 +425,14 @@ func (p *pages) threadView(b *post.Board, show post.Show) (threadView, error) {
 	var order []string
 	for _, ps := range show.Posts {
 		authors[ps.ID] = ps.Author
-		body, err := render(ps.Body, b.ID, ps.Refs)
+		body, err := render(ps.Body, b.ID, ps.Refs, ps.Mentions)
 		if err != nil {
 			return v, err
 		}
 		pv := postView{
 			ID: ps.ID, Thread: ps.Thread, Who: parseWho(ps.Author), Author: ps.Author,
 			Created: p.stamp(ps.Created), Editor: ps.Editor,
-			Tags: ps.Tags, Body: body, Root: ps.IsRoot(),
+			Tags: ps.Tags, Body: body, Root: ps.IsRoot(), Reactions: ps.Reactions,
 		}
 		if ps.Edited != "" {
 			e := p.stamp(ps.Edited)
