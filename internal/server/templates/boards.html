@@ -43,6 +43,7 @@
   <form id="new-board" class="card box new-board" action="/" method="post">
     <h3>New board</h3>
     {{- with .Form.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
+    <input type="hidden" name="nonce" value="{{.Form.Nonce}}">
     <div class="field">
       <label for="board-id">Id <span class="hint">For addresses and <code>--board</code>.</span></label>
       <input id="board-id" type="text" name="id" value="{{.Form.ID}}" required maxlength="32" pattern="[a-z][a-z0-9\-]{0,31}"

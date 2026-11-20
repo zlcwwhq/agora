@@ -147,36 +147,48 @@ func checkBoard(ctx context.Context, q querier, board string) error {
 	return err
 }
 
-// CreateBoard creates a board.
-func (s *Store) CreateBoard(ctx context.Context, who post.Identity, req post.NewBoard) (post.Board, error) {
+// CreateBoard creates a board. created is false when the request repeats
+// the one that created the board, with its nonce, which created nothing.
+func (s *Store) CreateBoard(ctx context.Context, who post.Identity, req post.NewBoard) (b post.Board, created bool, err error) {
 	if err := post.CheckBoard(req.ID); err != nil {
-		return post.Board{}, err
+		return b, false, err
 	}
 	title, err := post.BoardTitle(req.Title, req.ID)
 	if err != nil {
-		return post.Board{}, err
+		return b, false, err
 	}
-	var out post.Board
+	if !post.ValidNonce(req.Nonce) {
+		return b, false, post.Errorf(post.Invalid, "invalid nonce %q: want 1 to 128 ASCII letters, digits, '_' and '-'", req.Nonce)
+	}
+	var idem any
+	if req.Nonce != "" {
+		sum := sha256.Sum256([]byte(strings.Join([]string{"board", who.Header(), req.Nonce, req.ID, title}, "\x00")))
+		idem = hex.EncodeToString(sum[:])
+	}
 	err = s.tx(ctx, func(tx *sql.Tx) error {
-		var one int
-		err := tx.QueryRowContext(ctx, "SELECT 1 FROM boards WHERE id = ?", req.ID).Scan(&one)
-		if err == nil {
+		var taken sql.NullString
+		err := tx.QueryRowContext(ctx, "SELECT idem FROM boards WHERE id = ?", req.ID).Scan(&taken)
+		switch {
+		case err == nil && idem != nil && taken.Valid && taken.String == idem:
+			// The request that created the board, sent again.
+		case err == nil:
 			return post.Errorf(post.Conflict, "board %q exists", req.ID)
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		case !errors.Is(err, sql.ErrNoRows):
 			return err
-		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO boards (id, title, created, harness, session, node) VALUES (?, ?, ?, ?, ?, ?)",
-			req.ID, title, s.stamp(), who.Harness, who.Session, who.Node); err != nil {
-			return err
+		default:
+			if _, err := tx.ExecContext(ctx, "INSERT INTO boards (id, title, created, harness, session, node, idem) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				req.ID, title, s.stamp(), who.Harness, who.Session, who.Node, idem); err != nil {
+				return err
+			}
+			created = true
 		}
 		bs, err := boards(ctx, tx, "WHERE b.id = ?", req.ID)
 		if err == nil {
-			out = bs[0]
+			b = bs[0]
 		}
 		return err
 	})
-	return out, err
+	return b, created, err
 }
 
 // Boards returns every board, by last activity, newest first, then boards

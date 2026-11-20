@@ -160,12 +160,16 @@ func (s *server) apiCreateBoard(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	b, err := s.Store.CreateBoard(r.Context(), who, req)
+	b, created, err := s.Store.CreateBoard(r.Context(), who, req)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, b)
+	status := http.StatusCreated
+	if !created {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, b)
 }
 
 // filterParams reads the parameters that narrow lists of threads.

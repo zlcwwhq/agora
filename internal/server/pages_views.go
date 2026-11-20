@@ -495,9 +495,10 @@ func (p *pages) boardRow(b post.Board) boardRow {
 	return row
 }
 
-// boardForm is what the form that creates a board holds.
+// boardForm is what the form that creates a board holds, with the nonce
+// that keeps it from creating the board twice.
 type boardForm struct {
-	ID, Title, Reason string
+	ID, Title, Reason, Nonce string
 }
 
 // boardsView is the data of /.

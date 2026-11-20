@@ -30,7 +30,7 @@ func start(t *testing.T, person post.Identity) (string, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b"}); err != nil {
+	if _, _, err := st.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b"}); err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(New(Options{Store: st, Person: person, Version: "test", Logf: t.Logf}))
@@ -228,5 +228,35 @@ func TestAPIBoards(t *testing.T) {
 	}
 	if show, err := client.New(base, "b", codex).Show(ctx, 1); post.KindOf(err) != post.NotFound {
 		t.Errorf("proj's #1 shows on b: %+v, %v", show, err)
+	}
+}
+
+func TestAPIBoardNonce(t *testing.T) {
+	base, _ := start(t, post.Identity{})
+	send := func(body string) int {
+		t.Helper()
+		req, _ := http.NewRequest("POST", base+"/api/boards", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(AuthorHeader, codex.Header())
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode
+	}
+	for i, c := range []struct {
+		body string
+		want int
+	}{
+		{`{"id": "once", "title": "Once", "nonce": "n1"}`, 201},
+		{`{"id": "once", "title": "Once", "nonce": "n1"}`, 200},
+		{`{"id": "once", "title": "Other", "nonce": "n1"}`, 409},
+		{`{"id": "once", "title": "Once"}`, 409},
+		{`{"id": "twice", "nonce": "bad nonce"}`, 400},
+	} {
+		if got := send(c.body); got != c.want {
+			t.Errorf("%d: %s: status %d, want %d", i, c.body, got, c.want)
+		}
 	}
 }

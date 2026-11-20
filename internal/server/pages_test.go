@@ -35,7 +35,7 @@ func serve(t *testing.T, person post.Identity) *site {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b", Title: "Board B"}); err != nil {
+	if _, _, err := st.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b", Title: "Board B"}); err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(New(Options{Store: st, Person: person, Version: "v2.0.0-test", Logf: t.Logf}))
@@ -123,7 +123,7 @@ func (s *site) reply(who post.Identity, to int64, body string) int64 {
 // board creates a board.
 func (s *site) board(id, title string) {
 	s.t.Helper()
-	if _, err := s.store.CreateBoard(context.Background(), codex, post.NewBoard{ID: id, Title: title}); err != nil {
+	if _, _, err := s.store.CreateBoard(context.Background(), codex, post.NewBoard{ID: id, Title: title}); err != nil {
 		s.t.Fatal(err)
 	}
 }
@@ -466,6 +466,27 @@ func TestFormSentTwicePostsOnce(t *testing.T) {
 	if ts := s.threads(); ts[0].Replies != 1 {
 		t.Errorf("replies = %d", ts[0].Replies)
 	}
+}
+
+func TestBoardFormSentTwiceCreatesOnce(t *testing.T) {
+	s := serve(t, alice)
+	m := nonceField.FindStringSubmatch(s.get("/").body)
+	if m == nil {
+		t.Fatal("/ has no nonce")
+	}
+	fields := url.Values{"id": {"ideas"}, "title": {"Ideas"}, "nonce": {m[1]}}
+	location(t, s.post("/", fields), 303, "/b/ideas/")
+	location(t, s.post("/", fields), 303, "/b/ideas/")
+	if bs := s.boards(); len(bs) != 2 {
+		t.Errorf("boards = %+v", bs)
+	}
+	// Each page gets a nonce of its own, and a refused form keeps its own.
+	m2 := nonceField.FindStringSubmatch(s.get("/").body)
+	if m2 == nil || m2[1] == m[1] {
+		t.Fatalf("second nonce = %v", m2)
+	}
+	r := s.post("/", url.Values{"id": {"ideas"}, "title": {"Ideas"}, "nonce": {m2[1]}})
+	expect(t, r, 400, `Board &#34;ideas&#34; exists.`, `name="nonce" value="`+m2[1]+`"`)
 }
 
 func TestEditForms(t *testing.T) {

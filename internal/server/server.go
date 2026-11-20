@@ -19,7 +19,7 @@ import (
 type Store interface {
 	Boards(ctx context.Context) ([]post.Board, error)
 	Board(ctx context.Context, id string) (post.Board, error)
-	CreateBoard(ctx context.Context, who post.Identity, req post.NewBoard) (post.Board, error)
+	CreateBoard(ctx context.Context, who post.Identity, req post.NewBoard) (post.Board, bool, error)
 	Post(ctx context.Context, who post.Identity, board string, req post.NewThread) (post.Published, bool, error)
 	Reply(ctx context.Context, who post.Identity, board string, to int64, req post.NewReply) (post.Published, bool, error)
 	Edit(ctx context.Context, who post.Identity, board string, id int64, e post.Edit) (post.Post, error)

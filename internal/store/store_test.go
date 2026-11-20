@@ -35,7 +35,7 @@ func open(t *testing.T) (*Store, *clock) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if _, err := s.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b"}); err != nil {
+	if _, _, err := s.CreateBoard(context.Background(), alice, post.NewBoard{ID: "b"}); err != nil {
 		t.Fatal(err)
 	}
 	return s, c
@@ -433,7 +433,7 @@ func TestOpenLocksAndChecksVersion(t *testing.T) {
 func TestBoards(t *testing.T) {
 	s, _ := open(t)
 	ctx := context.Background()
-	other := must[post.Board](t)(s.CreateBoard(ctx, codex, post.NewBoard{ID: "other", Title: " Other board "}))
+	other := must[post.Board](t)(newBoard(s.CreateBoard(ctx, codex, post.NewBoard{ID: "other", Title: " Other board "})))
 	if other.ID != "other" || other.Title != "Other board" || other.Creator != "codex/019a2b3c@gpu" || other.Threads != 0 || other.LastActivity != "" {
 		t.Errorf("created = %+v", other)
 	}
@@ -445,7 +445,7 @@ func TestBoards(t *testing.T) {
 		{post.NewBoard{ID: "Bad"}, post.Invalid},
 		{post.NewBoard{ID: "x", Title: "two\nlines"}, post.Invalid},
 	} {
-		if _, err := s.CreateBoard(ctx, alice, c.req); post.KindOf(err) != c.kind {
+		if _, _, err := s.CreateBoard(ctx, alice, c.req); post.KindOf(err) != c.kind {
 			t.Errorf("CreateBoard(%+v) = %v, want kind %d", c.req, err, c.kind)
 		}
 	}
@@ -491,7 +491,7 @@ func TestBoards(t *testing.T) {
 	if len(bs) != 2 || bs[0].ID != "other" || bs[0].Threads != 2 || bs[0].Posts != 2 || bs[1].ID != "b" || bs[1].Posts != 2 {
 		t.Errorf("boards = %+v", bs)
 	}
-	empty := must[post.Board](t)(s.CreateBoard(ctx, alice, post.NewBoard{ID: "a-empty"}))
+	empty := must[post.Board](t)(newBoard(s.CreateBoard(ctx, alice, post.NewBoard{ID: "a-empty"})))
 	if bs = must[[]post.Board](t)(s.Boards(ctx)); len(bs) != 3 || bs[2].ID != empty.ID || empty.Title != "a-empty" {
 		t.Errorf("boards with an empty one = %+v", bs)
 	}
@@ -542,5 +542,50 @@ func TestNewestIDNotReused(t *testing.T) {
 	}
 	if b := must[post.Board](t)(s.Board(ctx, "b")); b.Posts != 2 {
 		t.Errorf("board = %+v", b)
+	}
+}
+
+// newBoard drops CreateBoard's created, for must.
+func newBoard(b post.Board, _ bool, err error) (post.Board, error) { return b, err }
+
+func TestBoardNonce(t *testing.T) {
+	s, _ := open(t)
+	ctx := context.Background()
+	req := post.NewBoard{ID: "once", Title: " Once ", Nonce: "n1"}
+	first, created, err := s.CreateBoard(ctx, alice, req)
+	if err != nil || !created || first.Title != "Once" {
+		t.Fatalf("first = %+v, %v, %v", first, created, err)
+	}
+	again, created, err := s.CreateBoard(ctx, alice, req)
+	if err != nil || created || again != first {
+		t.Errorf("repeat = %+v, created %v, %v", again, created, err)
+	}
+	// The same title after trimming is the same request.
+	if _, created, err := s.CreateBoard(ctx, alice, post.NewBoard{ID: "once", Title: "Once", Nonce: "n1"}); err != nil || created {
+		t.Errorf("repeat with the trimmed title: created %v, %v", created, err)
+	}
+	for _, c := range []struct {
+		who post.Identity
+		req post.NewBoard
+	}{
+		{alice, post.NewBoard{ID: "once", Title: "Once", Nonce: "n2"}},
+		{alice, post.NewBoard{ID: "once", Title: "Other", Nonce: "n1"}},
+		{alice, post.NewBoard{ID: "once", Title: "Once"}},
+		{codex, post.NewBoard{ID: "once", Title: "Once", Nonce: "n1"}},
+	} {
+		if _, _, err := s.CreateBoard(ctx, c.who, c.req); post.KindOf(err) != post.Conflict {
+			t.Errorf("CreateBoard(%v, %+v) = %v, want a conflict", c.who, c.req, err)
+		}
+	}
+	// A nonce without one before it creates nothing new for a board made
+	// without a nonce.
+	if _, _, err := s.CreateBoard(ctx, alice, post.NewBoard{ID: "b", Nonce: "n1"}); post.KindOf(err) != post.Conflict {
+		t.Errorf("nonce on a board created without one: %v", err)
+	}
+	if _, _, err := s.CreateBoard(ctx, alice, post.NewBoard{ID: "x", Nonce: "not valid!"}); post.KindOf(err) != post.Invalid {
+		t.Errorf("invalid nonce: %v", err)
+	}
+	if bs := must[[]post.Board](t)(s.Boards(ctx)); len(bs) != 2 {
+		t.Errorf("boards = %+v", bs)
 	}
 }

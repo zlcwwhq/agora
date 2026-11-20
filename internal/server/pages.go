@@ -282,6 +282,9 @@ func (p *pages) boards(w http.ResponseWriter, r *http.Request) {
 
 // showBoards shows every board, with the form that creates one holding f.
 func (p *pages) showBoards(w http.ResponseWriter, r *http.Request, status int, f boardForm) {
+	if f.Nonce == "" {
+		f.Nonce = newNonce()
+	}
 	bs, err := p.s.Store.Boards(r.Context())
 	if err != nil {
 		p.boardFailed(w, r, nil, err, form{Title: f.Title})
@@ -300,8 +303,8 @@ func (p *pages) createBoard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	f := boardForm{ID: r.PostForm.Get("id"), Title: typed.Title}
-	b, err := p.s.Store.CreateBoard(r.Context(), p.s.Person, post.NewBoard{ID: f.ID, Title: f.Title})
+	f := boardForm{ID: r.PostForm.Get("id"), Title: typed.Title, Nonce: typed.Nonce}
+	b, _, err := p.s.Store.CreateBoard(r.Context(), p.s.Person, post.NewBoard{ID: f.ID, Title: f.Title, Nonce: f.Nonce})
 	if k := post.KindOf(err); k == post.Invalid || k == post.Conflict {
 		f.Reason = sentence(err.Error())
 		p.showBoards(w, r, http.StatusBadRequest, f)

@@ -55,6 +55,7 @@ type Board struct {
 type NewBoard struct {
 	ID    string `json:"id"`
 	Title string `json:"title,omitempty"`
+	Nonce string `json:"nonce,omitempty"`
 }
 
 // Backlink is a reference to a thread's post from a post of another thread.
