@@ -11,5 +11,6 @@ import _ "embed"
 var Schema string
 
 // Version is the user_version that Schema sets. A database with a higher
-// version comes from a later agora, and is refused.
-const Version = 1
+// version comes from a later agora, and is refused, as is one with version
+// 1, which only development builds of agora 2 made, before boards.
+const Version = 2
