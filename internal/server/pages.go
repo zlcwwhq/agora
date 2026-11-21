@@ -366,7 +366,7 @@ func (p *pages) showThread(w http.ResponseWriter, r *http.Request, b *post.Board
 		p.boardFailed(w, r, b, err, f)
 		return
 	}
-	v, err := p.threadView(b, show)
+	v, err := p.threadView(r.Context(), b, show)
 	if err != nil {
 		p.boardFailed(w, r, b, err, f)
 		return

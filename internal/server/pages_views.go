@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -435,14 +436,15 @@ type threadView struct {
 	Form        form
 }
 
-func (p *pages) threadView(b *post.Board, show post.Show) (threadView, error) {
+func (p *pages) threadView(ctx context.Context, b *post.Board, show post.Show) (threadView, error) {
 	v := threadView{base: p.base(b, "", show.Thread.Title, query{}), Thread: p.threadRow(show.Thread), Backlinks: show.Backlinks, Focus: show.Focus}
 	authors := map[int64]string{}
 	counts := map[string]*participant{}
 	var order []string
+	find := p.findAttachment(ctx, b.ID, show.Posts)
 	for _, ps := range show.Posts {
 		authors[ps.ID] = ps.Author
-		body, err := render(ps.Body, b.ID, ps.Refs, ps.Mentions)
+		body, err := render(ps, b.ID, find)
 		if err != nil {
 			return v, err
 		}
@@ -475,6 +477,39 @@ func (p *pages) threadView(b *post.Board, show post.Show) (threadView, error) {
 		v.Participants = append(v.Participants, *counts[a])
 	}
 	return v, nil
+}
+
+// findAttachment finds the attachments that bodies name: those of posts,
+// on board, from them, and the others' from the store, once for each post.
+func (p *pages) findAttachment(ctx context.Context, board string, posts []post.Post) findAttachment {
+	type key struct {
+		board string
+		id    int64
+	}
+	known := make(map[key][]post.Attachment, len(posts))
+	for _, ps := range posts {
+		known[key{board, ps.ID}] = ps.Attachments
+	}
+	return func(board string, id int64, name string) (post.Attachment, bool, error) {
+		k := key{board, id}
+		as, ok := known[k]
+		if !ok {
+			// Get reads attachments' names, types, and sizes, not their
+			// content. A post or a board that doesn't exist has none.
+			got, err := p.s.Store.Get(ctx, board, id)
+			if err != nil && post.KindOf(err) != post.NotFound {
+				return post.Attachment{}, false, err
+			}
+			as = got.Attachments
+			known[k] = as
+		}
+		for _, a := range as {
+			if a.Name == name {
+				return a, true, nil
+			}
+		}
+		return post.Attachment{}, false, nil
+	}
 }
 
 // editing is the post that the compose page edits.

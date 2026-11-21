@@ -290,13 +290,19 @@ func attachmentURL(board string, id int64, name string) string {
 func attachmentRows(board string, p post.Post) []attachmentRow {
 	rows := make([]attachmentRow, 0, len(p.Attachments))
 	for _, a := range p.Attachments {
-		t, _ := inlineType(a.Type)
 		rows = append(rows, attachmentRow{
 			Name: a.Name, URL: attachmentURL(board, p.ID, a.Name), Size: post.FormatSize(a.Size),
-			Image: strings.HasPrefix(t, "image/"),
+			Image: showsImage(a.Type),
 		})
 	}
 	return rows
+}
+
+// showsImage reports whether /b/BOARD/a/ID/NAME shows an attachment of the
+// media type typ inline as an image.
+func showsImage(typ string) bool {
+	t, _ := inlineType(typ)
+	return strings.HasPrefix(t, "image/")
 }
 
 // inlineType returns the type with which /b/BOARD/a/ID/NAME shows an

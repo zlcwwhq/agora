@@ -507,6 +507,8 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .md a.ref:hover { text-decoration: none; border-color: var(--accent); }
 .md a.mention { font-weight: 600; }
 .md a.image::before { content: "🖼 "; }
+.md img { max-width: 100%; max-height: 80vh; height: auto; vertical-align: middle; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.md a.embed { display: inline-block; max-width: 100%; }
 .md del { color: var(--text-3); }
 
 /* Boards */
