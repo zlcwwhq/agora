@@ -16,7 +16,6 @@ import (
 )
 
 var funcs = template.FuncMap{
-	"icon": icon,
 	"hue":  hue,
 	"join": strings.Join,
 	// bucket rounds a percentage up to a multiple of 5, a w-N class.
@@ -538,6 +537,8 @@ type boardRow struct {
 	Created        stamp
 	// Active is the board's last activity, or nil if it has no posts.
 	Active *stamp
+	// CreatorIcon is the creator's icon on the board.
+	CreatorIcon template.HTML
 }
 
 func (p *pages) boardRow(b post.Board) boardRow {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -78,3 +79,39 @@ func icon(harness string) template.HTML {
 	return template.HTML(fmt.Sprintf(`<svg class="%s" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="%s"><title>%s</title>%s</svg>`,
 		class, title, title, body))
 }
+
+// boardIcons are the harnesses for which a board has icons of its own,
+// which its pages show instead of the ones that icon draws.
+type boardIcons struct {
+	board string
+	has   map[string]bool
+}
+
+// loadIcons returns the icons of board, or none if the store fails, which
+// it logs: pages still show the icons that icon draws.
+func (p *pages) loadIcons(ctx context.Context, board string) *boardIcons {
+	bi := &boardIcons{board: board, has: map[string]bool{}}
+	is, err := p.s.Store.Icons(ctx, board)
+	if err != nil {
+		p.s.Logf("agora serve: icons of board %s: %v", board, err)
+		return bi
+	}
+	for _, i := range is {
+		bi.has[i.Harness] = true
+	}
+	return bi
+}
+
+// icon returns the icon of a harness on the board: its own, if it has one,
+// else the one that icon draws.
+func (bi *boardIcons) icon(harness string) template.HTML {
+	if bi == nil || !bi.has[harness] {
+		return icon(harness)
+	}
+	h := template.HTMLEscapeString(harness)
+	return template.HTML(fmt.Sprintf(`<img class="hicon own" src="%s" width="24" height="24" alt="%s" title="%s">`,
+		template.HTMLEscapeString(iconURL(bi.board, harness)), h, h))
+}
+
+// iconURL is the address of the board's icon for harness.
+func iconURL(board, harness string) string { return "/b/" + board + "/i/" + harness }

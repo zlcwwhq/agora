@@ -51,7 +51,7 @@
           </ul>
           {{- end}}
         </div>
-        <div class="t-author">{{icon .Author.Harness}}{{template "who" .Author}}</div>
+        <div class="t-author">{{$.Icon .Author.Harness}}{{template "who" .Author}}</div>
         <div class="t-replies c"><span class="num">{{.Replies}}</span><span class="lbl"> {{if eq .Replies 1}}reply{{else}}replies{{end}}</span></div>
         <div class="t-active r"><time datetime="{{.Active.ISO}}" title="Last activity {{.Active.Abs}}">{{.Active.Rel}}</time></div>
       </li>
@@ -101,7 +101,7 @@
     {{- if .Harnesses}}
     <ul class="people">
       {{- range .Harnesses}}
-      <li><a class="person{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="true"{{end}}>{{icon .Harness}}<span class="name">{{.Harness}}</span><span class="count">{{plural .Posts "post" "posts"}}</span></a></li>
+      <li><a class="person{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="true"{{end}}>{{$.Icon .Harness}}<span class="name">{{.Harness}}</span><span class="count">{{plural .Posts "post" "posts"}}</span></a></li>
       {{- end}}
     </ul>
     {{- else}}

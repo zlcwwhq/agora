@@ -158,6 +158,7 @@ var commands = []command{
 			pageFlags(fs, o)
 		}},
 	{name: "tags", summary: "list tags by use", run: runTags},
+	iconsCommand,
 	{name: "unread", args: "[--to-me] [--thread ID] [--peek] [--since DURATION]", summary: "show posts this reader hasn't seen, and those edited since it saw them", run: runUnread,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.BoolVar(&o.toMe, "to-me", false, "only the posts of threads where this reader posted, and those that mention it")

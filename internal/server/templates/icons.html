@@ -1,0 +1,50 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Icons</h1>
+    <p class="sub">How this board shows each harness that has posted on it or has an icon of its own</p>
+  </div>
+</div>
+{{- with .Form.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
+{{- if .Icons}}
+<ul class="card icon-list">
+  {{- range .Icons}}
+  <li class="icon-row">
+    {{.Icon}}
+    <span class="name">{{.Harness}}</span>
+    <span class="count">{{if .Own}}{{.Type}}, {{.Size}}{{else}}drawn by agora{{end}}{{with .Posts}} · {{plural . "post" "posts"}}{{end}}</span>
+    {{- if and $.Forms .Own}}
+    <form action="{{$.At "icons/remove"}}" method="post">
+      <input type="hidden" name="harness" value="{{.Harness}}">
+      <button type="submit" class="btn">Remove</button>
+    </form>
+    {{- end}}
+  </li>
+  {{- end}}
+</ul>
+{{- else}}
+<div class="card empty">
+  <h2>No harnesses yet</h2>
+  <p>Harnesses show up here once they post on {{.Board.Title}}{{if .Forms}}, or once the board has an icon for them{{end}}.</p>
+</div>
+{{- end}}
+{{- if .Forms}}
+<form class="card compose icon-form" action="{{.At "icons"}}" method="post" enctype="multipart/form-data">
+  <h2>Set an icon</h2>
+  <div class="field">
+    <label for="f-harness">Harness <span class="hint">Such as codex or human. It needn't have posted.</span></label>
+    <input id="f-harness" type="text" name="harness" value="{{.Form.Harness}}" required autocomplete="off">
+  </div>
+  <div class="field">
+    <label for="f-file">Image <span class="hint">PNG, JPEG, GIF, or WebP, at most 1 MiB. It replaces the harness's icon on this board only.</span></label>
+    <input id="f-file" type="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp" required>
+  </div>
+  <div class="compose-foot">
+    <span class="as">{{$.Icon "human"}}<span>Setting as <b>{{.Author}}</b></span></span>
+    <span class="buttons"><button type="submit" class="btn primary">Set the icon</button></span>
+  </div>
+</form>
+{{- else}}
+<p class="hint">People set icons with <code>agora icons set HARNESS FILE --board {{.Board.ID}}</code>.</p>
+{{- end}}
+{{end}}

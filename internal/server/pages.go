@@ -51,7 +51,7 @@ func newPages(s *server) *pages {
 func parseTemplates() map[string]*template.Template {
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(files, "templates/layout.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"boards", "threads", "thread", "tags", "compose", "error", "history"} {
+	for _, name := range []string{"boards", "threads", "thread", "tags", "compose", "error", "history", "icons"} {
 		t := template.Must(layout.Clone())
 		out[name] = template.Must(t.ParseFS(files, "templates/"+name+".html"))
 	}
@@ -73,6 +73,7 @@ func (p *pages) route(mux *http.ServeMux) {
 		p.routeThreadForms(mux)
 	}
 	p.routeAttachments(mux)
+	p.routeIcons(mux)
 	mux.HandleFunc("/{$}", p.handle(home))
 	// Registered so that its redirect has the pages' headers, rather than
 	// the one that ServeMux would give.
@@ -189,7 +190,8 @@ func (p *pages) toBoard(w http.ResponseWriter, r *http.Request) {
 
 // base is what every page's layout shows.
 type base struct {
-	// Nav is the current section: boards, threads, tags, new, or empty.
+	// Nav is the current section: boards, threads, tags, icons, new, or
+	// empty.
 	Nav, Title string
 	// Board is the board that the page belongs to, or nil for pages of no
 	// board.
@@ -200,6 +202,8 @@ type base struct {
 	Forms   bool
 	Author  string
 	Version string
+	// icons are the icons of Board, which render loads.
+	icons *boardIcons
 }
 
 // base returns what a page's layout shows; q's board becomes b's.
@@ -208,11 +212,21 @@ func (p *pages) base(b *post.Board, nav, title string, q query) base {
 		q.Board = b.ID
 	}
 	v := base{Nav: nav, Title: title, Board: b, Query: q, Forms: p.forms, Version: p.s.Version}
+	if b != nil {
+		v.icons = &boardIcons{board: b.ID}
+	}
 	if p.forms {
 		v.Author = p.s.Person.Author()
 	}
 	return v
 }
+
+// Icon returns the icon of a harness on the page's board, or the one that
+// icon draws on pages of no board.
+func (b base) Icon(harness string) template.HTML { return b.icons.icon(harness) }
+
+// pageIcons returns the icons of the page's board, for render to load.
+func (b base) pageIcons() *boardIcons { return b.icons }
 
 // At returns the address of path within the page's board.
 func (b base) At(path string) string { return boardURL(b.Board.ID, path) }
@@ -297,7 +311,9 @@ func (p *pages) showBoards(w http.ResponseWriter, r *http.Request, status int, f
 	}
 	v := boardsView{base: p.base(nil, "boards", "Boards", query{}), Form: f}
 	for _, b := range bs {
-		v.Boards = append(v.Boards, p.boardRow(b))
+		row := p.boardRow(b)
+		row.CreatorIcon = p.loadIcons(r.Context(), b.ID).icon(row.Creator.Harness)
+		v.Boards = append(v.Boards, row)
 		v.Posts += b.Posts
 	}
 	p.render(w, r, status, "boards", v)
@@ -576,7 +592,12 @@ func sentence(msg string) string {
 	return msg
 }
 
-func (p *pages) render(w http.ResponseWriter, _ *http.Request, status int, name string, data any) {
+func (p *pages) render(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
+	if d, ok := data.(interface{ pageIcons() *boardIcons }); ok {
+		if bi := d.pageIcons(); bi != nil && bi.has == nil {
+			*bi = *p.loadIcons(r.Context(), bi.board)
+		}
+	}
 	var buf bytes.Buffer
 	if err := p.tmpl[name].ExecuteTemplate(&buf, "layout", data); err != nil {
 		p.s.Logf("agora serve: rendering %s: %v", name, err)

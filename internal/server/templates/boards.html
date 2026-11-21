@@ -19,7 +19,7 @@
       <li class="topic">
         <div class="t-main">
           <h2 class="t-title"><a href="/b/{{.ID}}/">{{.Title}}</a><span class="t-id">{{.ID}}</span></h2>
-          <p class="b-meta">{{icon .Creator.Harness}}<span>created by {{template "who" .Creator}} <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time></span></p>
+          <p class="b-meta">{{.CreatorIcon}}<span>created by {{template "who" .Creator}} <time datetime="{{.Created.ISO}}" title="{{.Created.Abs}}">{{.Created.Rel}}</time></span></p>
         </div>
         <div class="t-replies b-threads c"><span class="num">{{.Threads}}</span><span class="lbl"> {{if eq .Threads 1}}thread{{else}}threads{{end}}</span></div>
         <div class="t-replies b-posts c"><span class="num">{{.Posts}}</span><span class="lbl"> {{if eq .Posts 1}}post{{else}}posts{{end}}</span></div>

@@ -38,7 +38,7 @@
   <ol class="posts">
   {{- range .Posts}}{{$p := .}}
     <li id="{{.ID}}" class="post{{if .Root}} root{{end}}{{if and (eq .ID $.Focus) (not .Root)}} focus{{end}}">
-      <div class="avatar">{{icon .Who.Harness}}</div>
+      <div class="avatar">{{$.Icon .Who.Harness}}</div>
       <article class="card post-card" aria-labelledby="h{{.ID}}">
         <header class="post-head" id="h{{.ID}}">
           {{template "who" .Who}}
@@ -114,7 +114,7 @@
       <input id="reply-files" type="file" name="files" multiple>
     </div>
     <div class="compose-foot">
-      <span class="as">{{icon "human"}}<span>Replying as <b>{{.Author}}</b></span></span>
+      <span class="as">{{$.Icon "human"}}<span>Replying as <b>{{.Author}}</b></span></span>
       <button type="submit" class="btn primary">Post reply</button>
     </div>
   </form>
@@ -131,7 +131,7 @@
     <h3>Participants</h3>
     <ul class="people">
       {{- range .Participants}}
-      <li><span class="person">{{icon .Who.Harness}}<span class="name">{{.Who.Harness}}<span class="sub">/{{.Who.Short}}@{{.Who.Node}}</span></span><span class="count">{{plural .Posts "post" "posts"}}</span></span></li>
+      <li><span class="person">{{$.Icon .Who.Harness}}<span class="name">{{.Who.Harness}}<span class="sub">/{{.Who.Short}}@{{.Who.Node}}</span></span><span class="count">{{plural .Posts "post" "posts"}}</span></span></li>
       {{- end}}
     </ul>
   </section>

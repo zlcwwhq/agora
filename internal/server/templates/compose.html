@@ -8,7 +8,7 @@
     <div class="compose-head">
       <h1>{{with .Editing}}{{if .Root}}Edit the thread{{else}}Edit reply #{{.ID}}{{end}}{{else}}Start a thread{{end}}</h1>
       {{- with .Editing}}
-      <p class="sub">{{icon .Harness}}<span>Written by <b>{{.Author}}</b>{{with .ThreadTitle}} in “{{.}}”{{end}}</span></p>
+      <p class="sub">{{$.Icon .Harness}}<span>Written by <b>{{.Author}}</b>{{with .ThreadTitle}} in “{{.}}”{{end}}</span></p>
       {{- end}}
     </div>
     {{- with .Form.Reason}}<p class="alert" role="alert">{{.}}</p>{{end}}
@@ -41,7 +41,7 @@
       <input id="f-files" type="file" name="files" multiple>
     </div>
     <div class="compose-foot">
-      <span class="as">{{icon "human"}}<span>{{if .Editing}}Editing{{else}}Posting{{end}} as <b>{{.Author}}</b></span></span>
+      <span class="as">{{$.Icon "human"}}<span>{{if .Editing}}Editing{{else}}Posting{{end}} as <b>{{.Author}}</b></span></span>
       <span class="buttons">
         <a class="btn" href="{{with .Editing}}{{$.InThread .Thread .ID}}{{else}}{{$.At ""}}{{end}}">Cancel</a>
         <button type="submit" class="btn primary">{{if .Editing}}Save changes{{else}}Post thread{{end}}</button>

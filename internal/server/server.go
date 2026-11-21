@@ -34,6 +34,7 @@ type Store interface {
 	History(ctx context.Context, board string, id int64) (post.History, error)
 	React(ctx context.Context, who post.Identity, board string, id int64, req post.React) (post.Reacted, error)
 	ThreadStore
+	IconStore
 }
 
 // Options configure a server.

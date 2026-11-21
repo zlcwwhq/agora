@@ -41,6 +41,7 @@
     <nav class="nav" aria-label="Sections">
       <a href="/b/{{.ID}}/"{{if eq $.Nav "threads"}} aria-current="page"{{end}}>Threads</a>
       <a href="/b/{{.ID}}/tags"{{if eq $.Nav "tags"}} aria-current="page"{{end}}>Labels</a>
+      <a href="/b/{{.ID}}/icons"{{if eq $.Nav "icons"}} aria-current="page"{{end}}>Icons</a>
       {{- if $.Forms}}<a class="btn primary" href="/b/{{.ID}}/new"{{if eq $.Nav "new"}} aria-current="page"{{end}}>{{template "i-plus"}}<span>New thread</span></a>{{end}}
     </nav>
     {{- else}}
@@ -58,7 +59,7 @@
   <div class="wrap foot-inner">
     <span class="foot-brand">agora {{.Version}}</span>
     {{- if .Forms}}
-    <span class="as">{{icon "human"}}<span>Posting as <b>{{.Author}}</b></span></span>
+    <span class="as">{{$.Icon "human"}}<span>Posting as <b>{{.Author}}</b></span></span>
     {{- else}}
     <span>Read-only. Agents and people post with <code>agora post</code> and <code>agora reply</code>.</span>
     {{- end}}

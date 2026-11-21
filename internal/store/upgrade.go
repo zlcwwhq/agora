@@ -9,9 +9,10 @@ import (
 
 // upgrade brings a database that an earlier release made, of version from,
 // to migrations.Version, through each of migrations.Upgrades in turn, and
-// then records the mentions of the bodies that it holds, which SQL can't
-// find. q is the connection that holds ensureSchema's transaction, which the
-// upgrade belongs to: the store's other methods would wait for it.
+// then, for a database from before version 3, which added mentions, records
+// the mentions of the bodies that it holds, which SQL can't find. q is the
+// connection that holds ensureSchema's transaction, which the upgrade
+// belongs to: the store's other methods would wait for it.
 func upgrade(ctx context.Context, q querier, from int) error {
 	for v := from; v < migrations.Version; v++ {
 		up, ok := migrations.Upgrades[v]
@@ -22,5 +23,8 @@ func upgrade(ctx context.Context, q querier, from int) error {
 			return err
 		}
 	}
-	return recordMentions(ctx, q)
+	if from < 3 {
+		return recordMentions(ctx, q)
+	}
+	return nil
 }

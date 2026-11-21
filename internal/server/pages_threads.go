@@ -66,11 +66,12 @@ type moveForm struct {
 
 // fileFields are what the forms of posts hold besides their text: the
 // files to attach, the attachments to detach, and what the form that moves
-// the post held.
+// the post held; and what the form that sets an icon holds, its file.
 type fileFields struct {
 	files  []upload
 	detach []string
 	move   moveForm
+	icon   *upload
 	// refused says why the form's files can't be attached, in which case the
 	// form writes nothing and is shown again.
 	refused string
@@ -166,6 +167,18 @@ func (p *pages) readFiles(w http.ResponseWriter, r *http.Request, typed form) (f
 			typ = "application/octet-stream"
 		}
 		typed.files = append(typed.files, upload{name: fh.Filename, typ: typ, data: data})
+	}
+	if fhs := r.MultipartForm.File["file"]; len(fhs) > 0 && (fhs[0].Filename != "" || fhs[0].Size > 0) {
+		if fhs[0].Size > post.MaxAttachment {
+			p.failIn(w, r, nil, http.StatusRequestEntityTooLarge, fmt.Sprintf("%s is larger than 10 MiB, which is more than a form's file may have.", fhs[0].Filename), typed)
+			return form{}, false
+		}
+		data, err := readUpload(fhs[0])
+		if err != nil {
+			p.failIn(w, r, nil, http.StatusBadRequest, "Can't read the form: "+err.Error(), typed)
+			return form{}, false
+		}
+		typed.icon = &upload{name: fhs[0].Filename, data: data}
 	}
 	return typed, true
 }
