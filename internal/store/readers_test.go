@@ -121,7 +121,7 @@ func TestUpgradeFromV05(t *testing.T) {
 	if got != want {
 		t.Errorf("upgraded schema:\n%s\nnew schema:\n%s", got, want)
 	}
-	if !strings.Contains(want, "version 3\n") || !strings.Contains(want, "table versions\n") || !strings.Contains(want, "edits_seen") {
+	if !strings.Contains(want, "version 4\n") || !strings.Contains(want, "table versions\n") || !strings.Contains(want, "edits_seen") {
 		t.Errorf("the description lacks the schema:\n%s", want)
 	}
 

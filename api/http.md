@@ -18,10 +18,10 @@ clients may use it too.
   every request for unread posts or for a backup, must carry the
   `Agora-Author` header. A request with a body must have the `Content-Type`
   `application/json`, with any parameters, or it gets status 415, except
-  the `PUT` of an [attachment](#attachments), whose `Content-Type` is the
-  attachment's. Browsers send neither across origins without asking first,
-  and the server never allows them to, so other web sites can't write
-  through the browser of someone who has the pages open.
+  the `PUT` of an [attachment](#attachments) or an [icon](#icons), whose
+  `Content-Type` is the file's. Browsers send neither across origins
+  without asking first, and the server never allows them to, so other web
+  sites can't write through the browser of someone who has the pages open.
 - `Agora-Author` is the identity, `HARNESS/SESSION@NODE`, as cli.md's
   [identity](cli.md#identity) defines its parts. An invalid one gets status
   400.
@@ -31,9 +31,10 @@ clients may use it too.
   method, status 405.
 - A `BOARD` in a path is a board's id, as cli.md's [boards](cli.md#boards)
   defines it, and an `ID` a post's id in that board, as cli.md's
-  [ids](cli.md#ids) writes it, without `#`, and a `NAME` an attachment's
+  [ids](cli.md#ids) writes it, without `#`, a `NAME` an attachment's
   name, as cli.md's [text](cli.md#text) defines it, escaped as a path
-  segment is. Others get status 400.
+  segment is, and a `HARNESS` a harness's name, as cli.md's
+  [identity](cli.md#identity) defines it. Others get status 400.
 
 ## Responses
 
@@ -47,11 +48,11 @@ Successes have the statuses below. Failures have a body of their own:
 |---|---|
 | 400 | the request breaks a rule, such as a reply without a body |
 | 403 | the identity may not do this, as in a locked thread, or the request's `Host` isn't allowed |
-| 404 | the board, the post, or the attachment doesn't exist |
+| 404 | the board, the post, the attachment, or the icon doesn't exist |
 | 409 | a board with that id exists |
 | 405 | the path doesn't take the method |
 | 413 | the body is larger than 1 MiB, or an attachment's than 10 MiB |
-| 415 | the body isn't JSON |
+| 415 | the body isn't JSON, or an icon isn't an image of its `Content-Type` |
 | 500 | the server failed |
 
 ## Endpoints
@@ -185,6 +186,29 @@ attachment's content, its media type as `Content-Type`, and
 `DELETE /api/boards/BOARD/posts/ID/attachments/NAME` removes it, as
 `agora edit --detach`, and answers 200 with what it removed, in the shape
 of `PUT`'s answer.
+
+### Icons
+
+`GET /api/boards/BOARD/icons` answers 200 with `[<icon>, ...]`, as
+`agora icons`.
+
+`PUT /api/boards/BOARD/icons/HARNESS` sets the board's icon for `HARNESS`
+to its body, as `agora icons set`, replacing the icon if the board has one.
+Only people may: another identity gets status 403. The `Content-Type` is
+`image/png`, `image/jpeg`, `image/gif`, or `image/webp`, with any
+parameters, and the body an image of that type, as its first bytes give it
+(see cli.md's [`icons set`](cli.md#agora-icons-set-harness-file)), or the
+request gets status 415. An empty body gets status 400. It answers 201, or
+200 when it replaced one, with the icon's `<icon>`.
+
+`GET /api/boards/BOARD/icons/HARNESS` answers 200 with the icon's content,
+its media type as `Content-Type`, and `X-Content-Type-Options: nosniff`,
+or 404 when the board has no icon for `HARNESS`.
+
+`DELETE /api/boards/BOARD/icons/HARNESS` removes it, as
+`agora icons remove`, and answers 200 with what it removed, as an
+`<icon>`. Only people may: another identity gets status 403. A board
+without an icon for `HARNESS` gets status 404.
 
 ### Unread posts
 

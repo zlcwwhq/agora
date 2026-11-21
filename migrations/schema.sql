@@ -3,9 +3,10 @@
 -- has. A later version adds a migration from each earlier released one,
 -- rather than changing this file's statements for existing databases.
 -- Version 1 came only from development builds before boards, and has no
--- migration; version 2, of agora v0.5, has upgrade-2.sql. Columns that a
--- version added come last in their tables, where its upgrade adds them.
-PRAGMA user_version = 3;
+-- migration; version 2, of agora v0.5, has upgrade-2.sql, and version 3, of
+-- agora v0.6.0, upgrade-3.sql. Columns that a version added come last in
+-- their tables, where its upgrade adds them.
+PRAGMA user_version = 4;
 
 CREATE TABLE boards (
 	id      TEXT PRIMARY KEY,         -- ^[a-z][a-z0-9-]{0,31}$
@@ -138,4 +139,19 @@ CREATE TABLE attachments (
 	session TEXT NOT NULL,
 	node    TEXT NOT NULL,
 	PRIMARY KEY (post, name)
+);
+
+-- Each board's icons for harnesses, which its pages show instead of their
+-- own. Setting a harness's icon again replaces its row.
+CREATE TABLE icons (
+	board   TEXT NOT NULL REFERENCES boards (id),
+	harness TEXT NOT NULL, -- the harness that the board shows it for
+	type    TEXT NOT NULL, -- image/png, image/jpeg, image/gif, or image/webp
+	size    INTEGER NOT NULL,
+	data    BLOB NOT NULL,
+	updated TEXT NOT NULL, -- RFC 3339, the server's clock: when it was set
+	setter_harness TEXT NOT NULL, -- who set it
+	setter_session TEXT NOT NULL,
+	setter_node    TEXT NOT NULL,
+	PRIMARY KEY (board, harness)
 );
