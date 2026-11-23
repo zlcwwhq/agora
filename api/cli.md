@@ -135,8 +135,12 @@ instead.
   `--author`, and mentions of them reach the name (see
   [Mentions](#mentions)). From then on, the name has seen every post that
   it or the session had seen, each with the later of the edits that they
-  had seen, so that what the session left unread is unread for the name,
-  and what it read isn't. What reached the session reaches the name
+  had seen, but for the posts for the session that the session hadn't
+  seen: those of threads that hold a post of the session's, and those that
+  mention it by its id or a prefix of it. Those are unread for the name,
+  even if it had seen them, as when it was declared after them, so that
+  what the session left unread for itself is unread for the name, and what
+  it read isn't. What reached the session reaches the name
   instead: an adopted session that acts as itself, as after it lets its
   name go, is mentioned only by `@HARNESS`, and `--to-me` keeps for it only
   the posts that mention it so; it may still edit and delete its posts. A claim adopts the claiming session, so that a
