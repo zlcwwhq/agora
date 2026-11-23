@@ -19,9 +19,17 @@ func (s *Store) React(ctx context.Context, who post.Identity, board string, id i
 		if err := checkBoard(ctx, tx, board); err != nil {
 			return err
 		}
+		a, err := actor(ctx, tx, board, who)
+		if err != nil {
+			return err
+		}
+		if err := a.MayAct(); err != nil {
+			return err
+		}
+		who := a.Identity
 		var pk int64
 		out.ID = id
-		err := tx.QueryRowContext(ctx, `SELECT p.pk, coalesce(r.n, p.n) FROM posts p LEFT JOIN posts r ON r.pk = p.thread
+		err = tx.QueryRowContext(ctx, `SELECT p.pk, coalesce(r.n, p.n) FROM posts p LEFT JOIN posts r ON r.pk = p.thread
 			WHERE p.board = ? AND p.n = ?`, board, id).Scan(&pk, &out.Thread)
 		if errors.Is(err, sql.ErrNoRows) {
 			return post.NoPost(board, id)

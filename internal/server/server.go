@@ -35,6 +35,7 @@ type Store interface {
 	React(ctx context.Context, who post.Identity, board string, id int64, req post.React) (post.Reacted, error)
 	ThreadStore
 	IconStore
+	NameStore
 }
 
 // Options configure a server.
@@ -72,7 +73,7 @@ func New(o Options) http.Handler {
 	s.routeAPI(mux)
 	s.pages = newPages(s)
 	s.pages.route(mux)
-	return s.guard(mux)
+	return s.guard(s.resolve(mux))
 }
 
 // Run serves the handler of o on ln until ctx is done, then shuts down,

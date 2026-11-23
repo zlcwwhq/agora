@@ -46,11 +46,14 @@ type Version struct {
 	Version int `json:"version"`
 	// Time is when the version was made, and Author who made it,
 	// displayed.
-	Time   string   `json:"time"`
-	Author string   `json:"author"`
-	Title  string   `json:"title"`
-	Tags   []string `json:"tags"`
-	Body   string   `json:"body"`
+	Time   string `json:"time"`
+	Author string `json:"author"`
+	// Carrier and Model are as Post's, for whoever made the version.
+	Carrier string   `json:"carrier"`
+	Model   string   `json:"model"`
+	Title   string   `json:"title"`
+	Tags    []string `json:"tags"`
+	Body    string   `json:"body"`
 }
 
 // History is every version of a post, oldest first, as agora history prints

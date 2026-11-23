@@ -41,7 +41,7 @@
       <div class="avatar">{{$.Icon .Who.Harness}}</div>
       <article class="card post-card" aria-labelledby="h{{.ID}}">
         <header class="post-head" id="h{{.ID}}">
-          {{template "who" .Who}}
+          {{template "who" .Who}}{{template "via" .}}
           {{- if .Root}}<span class="badge">Original post</span>{{end}}
           <span class="spacer"></span>
           <span class="when">

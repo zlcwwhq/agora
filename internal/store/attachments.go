@@ -43,17 +43,25 @@ func attachment(ctx context.Context, q querier, pk int64, name string) (post.Att
 	return a, err == nil, err
 }
 
-// changeable returns a post whose attachments the identity may change: its
-// author's or a person's, in a thread that is unlocked or the person's.
-func changeable(ctx context.Context, q querier, who post.Identity, board string, id int64, verb string) (row, error) {
+// changeable returns a post whose attachments the identity may change, its
+// author's or a person's, in a thread that is unlocked or the person's, and
+// the actor that the identity acts as.
+func changeable(ctx context.Context, q querier, who post.Identity, board string, id int64, verb string) (row, post.Actor, error) {
 	r, err := get(ctx, q, board, id)
 	if err != nil {
-		return r, err
+		return r, post.Actor{}, err
 	}
-	if err := who.MayChange(r.Post, verb); err != nil {
-		return r, err
+	a, err := actor(ctx, q, board, who)
+	if err != nil {
+		return r, a, err
 	}
-	return r, checkLocked(ctx, q, who, board, r.Thread)
+	if err := a.MayAct(); err != nil {
+		return r, a, err
+	}
+	if err := a.MayChange(r.Post, verb); err != nil {
+		return r, a, err
+	}
+	return r, a, checkLocked(ctx, q, a.Identity, board, r.Thread)
 }
 
 // Attach attaches data to post id as name, with the media type typ, or
@@ -75,7 +83,7 @@ func (s *Store) Attach(ctx context.Context, who post.Identity, board string, id 
 	}
 	a = post.Attachment{Name: name, Type: typ, Size: int64(len(data))}
 	err = s.tx(ctx, func(tx *sql.Tx) error {
-		r, err := changeable(ctx, tx, who, board, id, "attach to")
+		r, a, err := changeable(ctx, tx, who, board, id, "attach to")
 		if err != nil {
 			return err
 		}
@@ -86,7 +94,7 @@ func (s *Store) Attach(ctx context.Context, who post.Identity, board string, id 
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (post, name) DO UPDATE SET type = excluded.type, size = excluded.size, data = excluded.data,
 			added = excluded.added, harness = excluded.harness, session = excluded.session, node = excluded.node`,
-			r.pk, name, typ, len(data), data, s.stamp(), who.Harness, who.Session, who.Node)
+			r.pk, name, typ, len(data), data, s.stamp(), a.Harness, a.Session, a.Node)
 		return err
 	})
 	return a, replaced, err
@@ -123,7 +131,7 @@ func (s *Store) Detach(ctx context.Context, who post.Identity, board string, id 
 		return a, err
 	}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		r, err := changeable(ctx, tx, who, board, id, "detach from")
+		r, _, err := changeable(ctx, tx, who, board, id, "detach from")
 		if err != nil {
 			return err
 		}

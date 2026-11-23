@@ -292,6 +292,13 @@ func (s *Store) publish(ctx context.Context, who post.Identity, board string, to
 		if err := checkBoard(ctx, tx, board); err != nil {
 			return err
 		}
+		a, err := actor(ctx, tx, board, who)
+		if err != nil {
+			return err
+		}
+		if err := a.MayAct(); err != nil {
+			return err
+		}
 		var idem any
 		if nonce != "" {
 			key := idemKey(board, to, who, nonce, title, tags, body)
@@ -318,7 +325,7 @@ func (s *Store) publish(ctx context.Context, who post.Identity, board string, to
 				return err
 			}
 			thread, replyTo = rootPK, toPK
-			if err := checkLocked(ctx, tx, who, board, pub.Thread); err != nil {
+			if err := checkLocked(ctx, tx, a.Identity, board, pub.Thread); err != nil {
 				return err
 			}
 		}
@@ -326,9 +333,9 @@ func (s *Store) publish(ctx context.Context, who post.Identity, board string, to
 			return err
 		}
 		res, err := tx.ExecContext(ctx, `INSERT INTO posts
-			(board, n, thread, reply_to, harness, session, node, created, title, body, title_fold, body_fold, idem)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			board, pub.ID, thread, replyTo, who.Harness, who.Session, who.Node, s.stamp(), title, body, post.Fold(title), post.Fold(body), idem)
+			(board, n, thread, reply_to, harness, session, node, created, title, body, title_fold, body_fold, idem, carrier, model)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			board, pub.ID, thread, replyTo, a.Harness, a.Session, a.Node, s.stamp(), title, body, post.Fold(title), post.Fold(body), idem, a.Carrier, a.Model)
 		if err != nil {
 			return err
 		}
@@ -351,7 +358,7 @@ func (s *Store) publish(ctx context.Context, who post.Identity, board string, to
 		// A new reader starts reading at its first post, having seen every
 		// edit until then.
 		_, err = tx.ExecContext(ctx, `INSERT INTO readers (board, reader, seen, edits_seen)
-			SELECT ?, ?, ?, last_edit FROM boards WHERE id = ? ON CONFLICT DO NOTHING`, board, who.Reader(), pub.ID, board)
+			SELECT ?, ?, ?, last_edit FROM boards WHERE id = ? ON CONFLICT DO NOTHING`, board, a.Reader(), pub.ID, board)
 		created = true
 		return err
 	})
@@ -400,7 +407,7 @@ type row struct {
 }
 
 // postSelect selects the columns that scanPost reads, of posts as p.
-const postSelect = `SELECT p.pk, p.board, p.n, coalesce(r.n, p.n), rt.n, p.harness, p.session, p.node, p.created,
+const postSelect = `SELECT p.pk, p.board, p.n, coalesce(r.n, p.n), rt.n, p.harness, p.session, p.node, p.carrier, p.model, p.created,
 	p.edited, p.editor_harness, p.editor_session, p.editor_node, p.title, p.body
 	FROM posts p LEFT JOIN posts r ON r.pk = p.thread LEFT JOIN posts rt ON rt.pk = p.reply_to `
 
@@ -410,8 +417,8 @@ func scanPost(sc scanner) (row, error) {
 	var r row
 	p := &r.Post
 	var replyTo sql.NullInt64
-	var eh, es, en string
-	err := sc.Scan(&r.pk, &p.Board, &p.ID, &p.Thread, &replyTo, &p.Harness, &p.Session, &p.Node, &p.Created,
+	var eh, es, en, carrier string
+	err := sc.Scan(&r.pk, &p.Board, &p.ID, &p.Thread, &replyTo, &p.Harness, &p.Session, &p.Node, &carrier, &p.Model, &p.Created,
 		&p.Edited, &eh, &es, &en, &p.Title, &p.Body)
 	if err != nil {
 		return r, err
@@ -420,6 +427,9 @@ func scanPost(sc scanner) (row, error) {
 		p.ReplyTo = &replyTo.Int64
 	}
 	p.Author = post.Author(p.Harness, p.Session, p.Node)
+	if carrier != "" {
+		p.Carrier = post.Author(p.Harness, carrier, p.Node)
+	}
 	if eh != "" && (eh != p.Harness || es != p.Session) {
 		p.Editor = post.Author(eh, es, en)
 	}
@@ -528,10 +538,17 @@ func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id in
 			return err
 		}
 		p := r.Post
-		if err := who.MayChange(p, "edit"); err != nil {
+		a, err := actor(ctx, tx, board, who)
+		if err != nil {
 			return err
 		}
-		if err := checkLocked(ctx, tx, who, board, p.Thread); err != nil {
+		if err := a.MayAct(); err != nil {
+			return err
+		}
+		if err := a.MayChange(p, "edit"); err != nil {
+			return err
+		}
+		if err := checkLocked(ctx, tx, a.Identity, board, p.Thread); err != nil {
 			return err
 		}
 		title, body := p.Title, p.Body
@@ -566,8 +583,8 @@ func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id in
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE posts SET title = ?, body = ?, title_fold = ?, body_fold = ?,
-			edited = ?, editor_harness = ?, editor_session = ?, editor_node = ?, edit_n = ? WHERE pk = ?`,
-			title, body, post.Fold(title), post.Fold(body), s.stamp(), who.Harness, who.Session, who.Node, editN, r.pk); err != nil {
+			edited = ?, editor_harness = ?, editor_session = ?, editor_node = ?, edit_n = ?, editor_carrier = ?, editor_model = ? WHERE pk = ?`,
+			title, body, post.Fold(title), post.Fold(body), s.stamp(), a.Harness, a.Session, a.Node, editN, a.Carrier, a.Model, r.pk); err != nil {
 			return err
 		}
 		if !slices.Equal(tags, p.Tags) {
@@ -598,10 +615,17 @@ func (s *Store) Delete(ctx context.Context, who post.Identity, board string, id 
 		if err != nil {
 			return err
 		}
-		if err := who.MayChange(r.Post, "delete"); err != nil {
+		a, err := actor(ctx, tx, board, who)
+		if err != nil {
 			return err
 		}
-		if err := checkLocked(ctx, tx, who, board, r.Thread); err != nil {
+		if err := a.MayAct(); err != nil {
+			return err
+		}
+		if err := a.MayChange(r.Post, "delete"); err != nil {
+			return err
+		}
+		if err := checkLocked(ctx, tx, a.Identity, board, r.Thread); err != nil {
 			return err
 		}
 		out = post.Removed{ID: id, Thread: r.Thread, Removed: []int64{id}}
@@ -735,8 +759,16 @@ func filter(f post.Filter, alias, threadExpr string) (string, []any, error) {
 		where.WriteString(" AND " + alias + ".harness = ?")
 		args = append(args, harness)
 		if prefix != "" {
-			where.WriteString(" AND substr(" + alias + ".session, 1, ?) = ?")
-			args = append(args, len(prefix), prefix)
+			// As mentions match readers: a name matches its own posts and
+			// its adopted sessions', a prefix the posts of sessions that
+			// start with it, or, for an adopted one, its name's.
+			a := alias
+			owner := "(CASE WHEN EXISTS (SELECT 1 FROM names an WHERE an.board = " + a + ".board AND an.harness = " + a + ".harness AND an.name = " + a + ".session) THEN " +
+				a + ".session ELSE (SELECT ad.name FROM adoptions ad WHERE ad.board = " + a + ".board AND ad.harness = " + a + ".harness AND ad.session = " + a + ".session) END)"
+			where.WriteString(" AND CASE WHEN EXISTS (SELECT 1 FROM names fn WHERE fn.board = " + a + ".board AND fn.harness = " + a + ".harness AND fn.name = ?) THEN " +
+				owner + " IS ? ELSE (CASE WHEN " + owner + " IS NULL THEN substr(" + a + ".session, 1, ?) = ? ELSE EXISTS (SELECT 1 FROM adoptions fa WHERE fa.board = " +
+				a + ".board AND fa.harness = " + a + ".harness AND fa.name = " + owner + " AND substr(fa.session, 1, ?) = ?) END) END")
+			args = append(args, prefix, prefix, len(prefix), prefix, len(prefix), prefix)
 		}
 	}
 	return where.String(), args, nil

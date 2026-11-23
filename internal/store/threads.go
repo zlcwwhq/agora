@@ -43,7 +43,14 @@ func (s *Store) ChangeThread(ctx context.Context, who post.Identity, board strin
 		if err != nil {
 			return err
 		}
-		if err := who.MayChangeThread(rs[0].Post, c); err != nil {
+		a, err := actor(ctx, tx, board, who)
+		if err != nil {
+			return err
+		}
+		if err := a.MayAct(); err != nil {
+			return err
+		}
+		if err := a.MayChangeThread(rs[0].Post, c); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE posts SET state = coalesce(?, state), pinned = coalesce(?, pinned), locked = coalesce(?, locked) WHERE pk = ?",

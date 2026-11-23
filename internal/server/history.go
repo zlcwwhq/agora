@@ -52,7 +52,9 @@ type historyView struct {
 type versionView struct {
 	Version int
 	Who     who
-	Time    stamp
+	// Via and Model are as postView's.
+	Via, Model string
+	Time       stamp
 	// Changes are what the version changed in the one before it, by field;
 	// the first version has none, and shows Title, Tags, and Body instead.
 	Changes []change
@@ -72,7 +74,7 @@ func (p *pages) historyView(b *post.Board, h post.History) historyView {
 	v := historyView{base: p.base(b, "", fmt.Sprintf("Versions of #%d", h.ID), query{}), ID: h.ID, Thread: h.Thread}
 	for i, ver := range h.Versions {
 		vv := versionView{
-			Version: ver.Version, Who: parseWho(ver.Author), Time: p.stamp(ver.Time),
+			Version: ver.Version, Who: parseWho(ver.Author), Via: ver.Carrier, Model: ver.Model, Time: p.stamp(ver.Time),
 			First: i == 0, Title: ver.Title, Tags: ver.Tags, Body: ver.Body,
 		}
 		if i > 0 {

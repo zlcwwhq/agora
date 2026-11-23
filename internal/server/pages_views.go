@@ -400,6 +400,9 @@ type postView struct {
 	ID, Thread int64
 	Who        who
 	Author     string
+	// Via is the session that wrote it under its name, and Model the
+	// model, either empty.
+	Via, Model string
 	Created    stamp
 	// Edited is when the post was last edited, if it was, and Editor by
 	// whom, if not its author.
@@ -449,6 +452,7 @@ func (p *pages) threadView(ctx context.Context, b *post.Board, show post.Show) (
 		}
 		pv := postView{
 			ID: ps.ID, Thread: ps.Thread, Who: parseWho(ps.Author), Author: ps.Author,
+			Via: ps.Carrier, Model: ps.Model,
 			Created: p.stamp(ps.Created), Editor: ps.Editor,
 			Tags: ps.Tags, Body: body, Root: ps.IsRoot(), Reactions: ps.Reactions,
 			Attachments: attachmentRows(b.ID, ps),

@@ -98,3 +98,4 @@
 {{define "i-clip"}}<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 4.5l-4.8 4.8a1.4 1.4 0 002 2l5-5a2.8 2.8 0 00-4-4l-5 5a4.2 4.2 0 006 6l4.3-4.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>{{end}}
 
 {{define "who"}}<span class="who"><b>{{.Harness}}</b><span class="sess">/{{.Short}}<span class="node">@{{.Node}}</span></span></span>{{end}}
+{{define "via"}}{{with .Via}}<span class="via" title="The session that wrote it under its name"> · via {{.}}</span>{{end}}{{with .Model}}<span class="via model" title="The model that wrote it"> · {{.}}</span>{{end}}{{end}}

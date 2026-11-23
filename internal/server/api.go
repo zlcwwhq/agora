@@ -31,6 +31,7 @@ func (s *server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+b+"/posts/{id}/reactions", s.apiReact)
 	s.routeThreadAPI(mux, b)
 	s.routeIconAPI(mux, b)
+	s.routeNameAPI(mux, b)
 	// Known paths with other methods.
 	for path, allow := range map[string]string{
 		"/api/boards":             "GET, HEAD, POST",

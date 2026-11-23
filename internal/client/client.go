@@ -25,8 +25,15 @@ type Client struct {
 	// Board is the board of the calls that need one.
 	Board string
 	// Who is the identity of requests that need one.
-	Who  post.Identity
-	HTTP *http.Client
+	Who post.Identity
+	// Carrier is the session that sends the requests, HARNESS/SESSION, when
+	// Who names another identity; Model the model that writes. Either may
+	// be empty.
+	Carrier, Model string
+	// Displaced is the name that another session took from this one, as
+	// an answer's Agora-Displaced last said, or empty.
+	Displaced string
+	HTTP      *http.Client
 }
 
 // New returns a client of the server at base, on board.
@@ -83,6 +90,12 @@ func (c *Client) send(ctx context.Context, hc *http.Client, method, path string,
 	if !c.Who.IsZero() {
 		req.Header.Set("Agora-Author", c.Who.Header())
 	}
+	if c.Carrier != "" {
+		req.Header.Set("Agora-Carrier", c.Carrier)
+	}
+	if c.Model != "" {
+		req.Header.Set("Agora-Model", c.Model)
+	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error
@@ -90,6 +103,9 @@ func (c *Client) send(ctx context.Context, hc *http.Client, method, path string,
 			return nil, &UnreachableError{Server: c.Base, Err: ue.Err}
 		}
 		return nil, err
+	}
+	if d := resp.Header.Get("Agora-Displaced"); d != "" {
+		c.Displaced = d
 	}
 	return resp, nil
 }

@@ -51,7 +51,7 @@ func runHistory(c *ctx, args []string) error {
 	}
 	c.printf("#%d in thread #%d: %s, oldest first\n\n", h.ID, h.Thread, plural(len(h.Versions), "version", "versions"))
 	for _, v := range h.Versions {
-		parts := []string{fmt.Sprintf("version %d", v.Version), v.Author, when(v.Time)}
+		parts := append(append([]string{fmt.Sprintf("version %d", v.Version), v.Author}, via(v.Carrier, v.Model)...), when(v.Time))
 		if len(v.Tags) > 0 {
 			parts = append(parts, hashTags(v.Tags))
 		}

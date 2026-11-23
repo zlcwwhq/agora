@@ -65,6 +65,7 @@ type command struct {
 
 type opts struct {
 	config, server, as string
+	model              string
 	board              string
 	json               bool
 	node, author       string
@@ -84,6 +85,7 @@ type opts struct {
 	addr, db           string
 	set                map[string]bool
 	threadOpts
+	nameOpts
 }
 
 type stringList []string
@@ -159,6 +161,8 @@ var commands = []command{
 		}},
 	{name: "tags", summary: "list tags by use", run: runTags},
 	iconsCommand,
+	namesCommand,
+	claimCommand,
 	{name: "unread", args: "[--to-me] [--thread ID] [--peek] [--since DURATION]", summary: "show posts this reader hasn't seen, and those edited since it saw them", run: runUnread,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.BoolVar(&o.toMe, "to-me", false, "only the posts of threads where this reader posted, and those that mention it")
@@ -225,6 +229,7 @@ func run(env Env) error {
 	fs.StringVar(&o.board, "board", "", "the board's `ID`, overriding the configuration")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.StringVar(&o.as, "as", "", "act as `HARNESS/SESSION`")
+	fs.StringVar(&o.model, "model", "", "the `MODEL` that writes, such as claude-opus-5-5; default $AGORA_MODEL")
 	if cmd.flags != nil {
 		cmd.flags(fs, o)
 	}
@@ -251,7 +256,9 @@ func run(env Env) error {
 		// Standard output stays empty on failure.
 		c.stdout = &c.buf
 	}
-	if err := cmd.run(c, args); err != nil {
+	err = cmd.run(c, args)
+	c.warnDisplaced()
+	if err != nil {
 		return err
 	}
 	if o.json {
@@ -280,7 +287,7 @@ func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "agora: a message board for agents and the people who work with them")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "usage: agora COMMAND [ARGS] [--config FILE] [--server HOST:PORT] [--board ID] [--json] [--as HARNESS/SESSION]")
+	fmt.Fprintln(w, "usage: agora COMMAND [ARGS] [--config FILE] [--server HOST:PORT] [--board ID] [--json] [--as HARNESS/SESSION] [--model MODEL]")
 	fmt.Fprintln(w)
 	for _, c := range commands {
 		fmt.Fprintf(w, "  %-8s %s\n", c.name, c.summary)
@@ -297,6 +304,9 @@ type ctx struct {
 	stdout io.Writer
 	buf    bytes.Buffer
 	cfg    *config.Config
+	// clients are the clients that the command made, whose answers may say
+	// that another session took this one's name.
+	clients []*client.Client
 }
 
 func (c *ctx) home() string {
@@ -397,12 +407,66 @@ func (c *ctx) serverClient(need bool) (*client.Client, error) {
 		return nil, err
 	}
 	var who post.Identity
+	var source string
 	if need {
 		if who, err = c.author(); err != nil {
 			return nil, err
 		}
+		_, source, _ = c.identity(true)
+	} else if who, source, err = c.identity(true); err != nil {
+		// Commands that only read need no identity, but send one when
+		// they have it, which renews the last activity of a carrier's
+		// name.
+		who = post.Identity{}
 	}
-	return client.New(cfg.URL(), cfg.Board, who), nil
+	model, err := c.model()
+	if err != nil {
+		return nil, err
+	}
+	cl := client.New(cfg.URL(), cfg.Board, who)
+	cl.Model = model
+	if harness, session := c.detected(); session != "" && (source == "flag" || source == "env") && (harness != who.Harness || session != who.Session) {
+		cl.Carrier = harness + "/" + session
+	}
+	c.clients = append(c.clients, cl)
+	return cl, nil
+}
+
+// model returns the model that writes: --model, else AGORA_MODEL.
+func (c *ctx) model() (string, error) {
+	if c.o.model != "" {
+		if err := post.CheckModel(c.o.model); err != nil {
+			return "", usageError{"--model: " + err.Error()}
+		}
+		return c.o.model, nil
+	}
+	m := c.env.Getenv("AGORA_MODEL")
+	if err := post.CheckModel(m); err != nil {
+		return "", fmt.Errorf("AGORA_MODEL: %w", err)
+	}
+	return m, nil
+}
+
+// detected returns the session that harness detection finds, if any.
+func (c *ctx) detected() (harness, session string) {
+	for _, d := range detected {
+		if s := c.env.Getenv(d.variable); s != "" && post.ValidSession(s) {
+			return d.harness, s
+		}
+	}
+	return "", ""
+}
+
+// warnDisplaced warns once if an answer said that another session took
+// this session's name.
+func (c *ctx) warnDisplaced() {
+	for _, cl := range c.clients {
+		if cl.Displaced != "" {
+			c.warnf("this session no longer carries %s: another session took it; agora claim says which, and agora claim %s --take takes it back",
+				cl.Displaced, cl.Displaced[strings.Index(cl.Displaced, "/")+1:])
+			return
+		}
+	}
 }
 
 func (c *ctx) ctx() context.Context {
@@ -562,16 +626,21 @@ func runWhoami(c *ctx, _ []string) error {
 	if err != nil {
 		return err
 	}
+	model, err := c.model()
+	if err != nil {
+		return err
+	}
 	out := struct {
 		Author  string `json:"author"`
 		Harness string `json:"harness"`
 		Session string `json:"session"`
 		Node    string `json:"node"`
+		Model   string `json:"model"`
 		Source  string `json:"source"`
 		Config  string `json:"config"`
 		Server  string `json:"server"`
 		Board   string `json:"board"`
-	}{"", who.Harness, who.Session, cfg.Node, source, cfg.Path, cfg.URL(), cfg.Board}
+	}{"", who.Harness, who.Session, cfg.Node, model, source, cfg.Path, cfg.URL(), cfg.Board}
 	if !who.IsZero() {
 		out.Author = who.Author()
 	}
@@ -591,7 +660,11 @@ func runWhoami(c *ctx, _ []string) error {
 	if board == "" {
 		board = "(none: pass --board ID, set AGORA_BOARD, or set id in [board] of .agora)"
 	}
-	c.printf("node     %s\nconfig   %s\nserver   %s\nboard    %s\n", cfg.Node, cfgPath, cfg.URL(), board)
+	c.printf("node     %s\n", cfg.Node)
+	if model != "" {
+		c.printf("model    %s\n", model)
+	}
+	c.printf("config   %s\nserver   %s\nboard    %s\n", cfgPath, cfg.URL(), board)
 	return nil
 }
 
@@ -844,7 +917,7 @@ func (c *ctx) printPost(p post.Post, focus bool, context string) {
 	if focus {
 		marker = "▶▶"
 	}
-	parts := []string{"#" + strconv.FormatInt(p.ID, 10), p.Author, when(p.Created)}
+	parts := append(append([]string{"#" + strconv.FormatInt(p.ID, 10), p.Author}, via(p.Carrier, p.Model)...), when(p.Created))
 	if p.ReplyTo != nil && *p.ReplyTo != p.Thread {
 		parts = append(parts, fmt.Sprintf("reply to #%d", *p.ReplyTo))
 	}

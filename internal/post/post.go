@@ -14,6 +14,10 @@ type Post struct {
 	Harness string `json:"harness"`
 	Session string `json:"session"`
 	Node    string `json:"node"`
+	// Carrier is the session that wrote it under its name, displayed, or
+	// empty; Model the model that wrote it, or empty.
+	Carrier string `json:"carrier"`
+	Model   string `json:"model"`
 	Created string `json:"created"`
 	Edited  string `json:"edited"`
 	// Editor is the author of the latest edit, displayed, when that isn't

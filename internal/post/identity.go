@@ -83,15 +83,22 @@ func (id Identity) IsPerson() bool { return id.Harness == Person }
 // IsZero reports whether the identity is unset.
 func (id Identity) IsZero() bool { return id == Identity{} }
 
-// Author formats an author for display: harness/<first 8 of session>@node.
+// Author formats an author for display: harness/session@node, with the
+// whole session when it matches the pattern of names, as names and people's
+// names do, and else its first 8 characters.
 func Author(harness, session, node string) string {
 	if harness == "" {
 		return ""
 	}
-	if len(session) > 8 {
+	return Short(harness, session) + "@" + node
+}
+
+// Short formats harness/session as Author does, without the node.
+func Short(harness, session string) string {
+	if len(session) > 8 && !namePattern.MatchString(session) {
 		session = session[:8]
 	}
-	return harness + "/" + session + "@" + node
+	return harness + "/" + session
 }
 
 // Wrote reports whether the identity is p's author, whatever machine either

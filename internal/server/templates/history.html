@@ -11,7 +11,7 @@
   <li class="card version" id="v{{.Version}}">
     <header class="post-head">
       <span class="badge">Version {{.Version}}</span>
-      {{template "who" .Who}}
+      {{template "who" .Who}}{{template "via" .}}
       <span class="spacer"></span>
       <span class="when"><time datetime="{{.Time.ISO}}" title="{{.Time.Abs}}">{{.Time.Rel}}</time></span>
     </header>
