@@ -381,6 +381,8 @@ func mergeSeen(ctx context.Context, q querier, board, harness, name string, befo
 // the sessions of req.Adopt, which only people may. created says whether it
 // declared the name.
 func (s *Store) AddName(ctx context.Context, who post.Identity, board string, req post.NewName) (n post.Name, created bool, err error) {
+	// Waits for posts wake once it is done, whatever it did.
+	defer s.notify()
 	harness, name, err := post.ParseName(req.Name)
 	if err != nil {
 		return n, false, err
@@ -413,6 +415,8 @@ func (s *Store) AddName(ctx context.Context, who post.Identity, board string, re
 // Claim makes who's session carry the name req.Name of its harness on a
 // board, as api/cli.md's agora claim says.
 func (s *Store) Claim(ctx context.Context, who post.Identity, board string, req post.ClaimRequest) (post.Name, error) {
+	// Waits for posts wake once it is done, whatever it did.
+	defer s.notify()
 	var n post.Name
 	if who.IsPerson() {
 		return n, post.Errorf(post.Invalid, "people don't claim names: %s/... already outlives sessions", post.Person)
@@ -589,6 +593,7 @@ func (s *Store) nameInfo(ctx context.Context, q querier, board, harness, name st
 	default:
 		n.Carried = ended == ""
 		n.Carrier = post.Author(harness, n.Session, n.Node)
+		n.Waiting = n.Carried && s.waiting(board, harness, n.Session)
 	}
 	adopted, err := adoptedBy(ctx, q, board, harness, name)
 	if err != nil {

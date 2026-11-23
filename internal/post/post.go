@@ -4,6 +4,8 @@
 // touches neither files nor the network.
 package post
 
+import "time"
+
 // Post is a post, as api/cli.md's <post> shape.
 type Post struct {
 	Board   string `json:"board"`
@@ -181,7 +183,13 @@ type UnreadRequest struct {
 	// only those of the thread that contains it.
 	ToMe   bool  `json:"to_me,omitempty"`
 	Thread int64 `json:"thread,omitempty"`
+	// Wait, unless it is 0, is the most seconds to wait for posts to show,
+	// marking nothing, as agora wait does.
+	Wait int64 `json:"wait,omitempty"`
 }
+
+// MaxWait is the longest that a request waits for posts.
+const MaxWait = 600 * time.Second
 
 // Filter narrows lists of threads.
 type Filter struct {

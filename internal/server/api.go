@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -381,6 +382,10 @@ func (s *server) apiDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, removed)
 }
 
+// waitsKey is the key of the context, in requests' contexts, that is done
+// when requests that wait for posts must answer.
+type waitsKey struct{}
+
 func (s *server) apiUnread(w http.ResponseWriter, r *http.Request) {
 	board, ok := pathBoard(w, r)
 	if !ok {
@@ -394,7 +399,16 @@ func (s *server) apiUnread(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	u, err := s.Store.Unread(r.Context(), who, board, req)
+	ctx := r.Context()
+	if req.Wait > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		if waits, ok := ctx.Value(waitsKey{}).(context.Context); ok {
+			defer context.AfterFunc(waits, cancel)()
+		}
+	}
+	u, err := s.Store.Unread(ctx, who, board, req)
 	if err != nil {
 		s.fail(w, err)
 		return

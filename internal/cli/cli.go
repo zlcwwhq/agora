@@ -52,6 +52,15 @@ type usageError struct{ msg string }
 
 func (e usageError) Error() string { return e.msg }
 
+// statusError is an outcome that exits with a status of its own, after
+// what the command printed, also with --json.
+type statusError struct {
+	status int
+	msg    string
+}
+
+func (e statusError) Error() string { return e.msg }
+
 func usagef(format string, args ...any) error { return usageError{fmt.Sprintf(format, args...)} }
 
 type command struct {
@@ -86,6 +95,7 @@ type opts struct {
 	set                map[string]bool
 	threadOpts
 	nameOpts
+	waitOpts
 }
 
 type stringList []string
@@ -170,6 +180,7 @@ var commands = []command{
 			fs.BoolVar(&o.peek, "peek", false, "don't mark them seen")
 			fs.StringVar(&o.since, "since", "", "for a new reader, also posts created within `DURATION`, such as 90m or 2d")
 		}},
+	waitCommand,
 	backupCommand,
 	{name: "serve", args: "[--addr HOST:PORT] [--db FILE] [--as human/NAME]", summary: "run the server of the boards: the API and the web pages", run: runServe,
 		flags: func(fs *flag.FlagSet, o *opts) {
@@ -186,8 +197,12 @@ func Run(env Env) int {
 	}
 	fmt.Fprintln(env.Stderr, "agora:", err)
 	var u usageError
-	if errors.As(err, &u) {
+	var st statusError
+	switch {
+	case errors.As(err, &u):
 		return 2
+	case errors.As(err, &st):
+		return st.status
 	}
 	return 1
 }
@@ -258,14 +273,16 @@ func run(env Env) error {
 	}
 	err = cmd.run(c, args)
 	c.warnDisplaced()
-	if err != nil {
+	var st statusError
+	if err != nil && !errors.As(err, &st) {
 		return err
 	}
 	if o.json {
-		_, err := io.Copy(env.Stdout, &c.buf)
-		return err
+		if _, err := io.Copy(env.Stdout, &c.buf); err != nil {
+			return err
+		}
 	}
-	return nil
+	return err
 }
 
 // parse parses flags that may come before, between, or after arguments.
@@ -1090,6 +1107,11 @@ func runUnread(c *ctx, _ []string) error {
 	if c.o.set["since"] && !u.NewReader {
 		c.warnf("--since counts only for a new reader, and this one has read before: agora list and agora search find earlier posts")
 	}
+	return c.printUnread(u, cl)
+}
+
+// printUnread prints what unread returned.
+func (c *ctx) printUnread(u post.Unread, cl *client.Client) error {
 	if c.o.json {
 		return c.printJSON(u)
 	}

@@ -30,6 +30,7 @@ type Store struct {
 	now func() time.Time
 	// dir is the database's directory, where backups are made.
 	dir string
+	waits
 }
 
 // Open opens the database at path, creating it and its schema if it doesn't
@@ -285,6 +286,8 @@ func idemKey(board string, to int64, who post.Identity, nonce, title string, tag
 }
 
 func (s *Store) publish(ctx context.Context, who post.Identity, board string, to int64, title, body string, tags []string, nonce string) (pub post.Published, created bool, err error) {
+	// Waits for posts wake once it is done, whatever it did.
+	defer s.notify()
 	if !post.ValidNonce(nonce) {
 		return pub, false, post.Errorf(post.Invalid, "invalid nonce %q: want 1 to 128 ASCII letters, digits, '_' and '-'", nonce)
 	}
@@ -528,6 +531,8 @@ func (s *Store) Get(ctx context.Context, board string, id int64) (post.Post, err
 // Edit changes a post's fields that e sets. An edit that changes them keeps
 // the version that it replaces.
 func (s *Store) Edit(ctx context.Context, who post.Identity, board string, id int64, e post.Edit) (post.Post, error) {
+	// Waits for posts wake once it is done, whatever it did.
+	defer s.notify()
 	if err := e.Check(); err != nil {
 		return post.Post{}, err
 	}

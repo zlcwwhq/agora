@@ -28,6 +28,8 @@ func subtree(ctx context.Context, q querier, r row) ([]int64, error) {
 // m.To, where id then replies to m.To, or into a new thread titled m.Title,
 // whose root id becomes. Only people may. Moving isn't an edit.
 func (s *Store) Move(ctx context.Context, who post.Identity, board string, id int64, m post.Move) (post.Moved, error) {
+	// Waits for posts wake once it is done, whatever it did.
+	defer s.notify()
 	var out post.Moved
 	if err := m.Check(); err != nil {
 		return out, err

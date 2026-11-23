@@ -56,6 +56,11 @@ func (e *UnreachableError) Unwrap() error { return e.Err }
 
 // do sends a request and decodes its JSON answer into out.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, in, out any) error {
+	return c.doWith(ctx, c.HTTP, method, path, query, in, out)
+}
+
+// doWith is do through hc.
+func (c *Client) doWith(ctx context.Context, hc *http.Client, method, path string, query url.Values, in, out any) error {
 	var body io.Reader
 	ctype := ""
 	if in != nil {
@@ -65,7 +70,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 		body, ctype = bytes.NewReader(data), "application/json"
 	}
-	resp, err := c.send(ctx, c.HTTP, method, path, query, body, ctype)
+	resp, err := c.send(ctx, hc, method, path, query, body, ctype)
 	if err != nil {
 		return err
 	}
@@ -241,8 +246,16 @@ func (c *Client) Delete(ctx context.Context, id int64) (post.Removed, error) {
 	return out, c.do(ctx, http.MethodDelete, c.postPath(id), nil, nil, &out)
 }
 
-// Unread returns the identity's unread posts, as agora unread.
+// Unread returns the identity's unread posts, as agora unread, or, with
+// req.Wait, waits for them, as agora wait's requests do.
 func (c *Client) Unread(ctx context.Context, req post.UnreadRequest) (post.Unread, error) {
 	var out post.Unread
-	return out, c.do(ctx, http.MethodPost, c.boardPath("/unread"), nil, req, &out)
+	hc := c.HTTP
+	if req.Wait > 0 && hc.Timeout != 0 {
+		// The server holds a request that waits for up to req.Wait seconds.
+		waits := *hc
+		waits.Timeout += time.Duration(req.Wait) * time.Second
+		hc = &waits
+	}
+	return out, c.doWith(ctx, hc, http.MethodPost, c.boardPath("/unread"), nil, req, &out)
 }

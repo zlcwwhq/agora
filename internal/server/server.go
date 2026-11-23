@@ -79,10 +79,18 @@ func New(o Options) http.Handler {
 // Run serves the handler of o on ln until ctx is done, then shuts down,
 // letting requests in progress finish.
 func Run(ctx context.Context, ln net.Listener, o Options) error {
+	// Requests that wait for posts answer at once when the server shuts
+	// down, rather than keeping it up.
+	waits, stopWaits := context.WithCancel(context.Background())
+	defer stopWaits()
 	srv := &http.Server{
 		Handler:           New(o),
 		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext: func(net.Listener) context.Context {
+			return context.WithValue(context.Background(), waitsKey{}, waits)
+		},
 	}
+	srv.RegisterOnShutdown(stopWaits)
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()
 	select {

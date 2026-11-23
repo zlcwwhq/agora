@@ -107,13 +107,27 @@ func (s *Store) Unread(ctx context.Context, who post.Identity, board string, req
 	if req.Thread < 0 {
 		return post.Unread{}, post.Errorf(post.Invalid, "invalid thread %d: want a post's id, or 0 for every thread", req.Thread)
 	}
+	if req.Wait < 0 || req.Wait > int64(post.MaxWait/time.Second) {
+		return post.Unread{}, post.Errorf(post.Invalid, "invalid wait %d: want 0 to %d seconds", req.Wait, int64(post.MaxWait/time.Second))
+	}
+	if req.Wait > 0 {
+		return s.wait(ctx, who, board, req)
+	}
+	out, _, err := s.unread(ctx, who, board, req, !req.Peek)
+	return out, err
+}
+
+// unread is Unread, marking what it returns seen only if mark is true, and
+// returns the actor that who acts as.
+func (s *Store) unread(ctx context.Context, who post.Identity, board string, req post.UnreadRequest, mark bool) (post.Unread, post.Actor, error) {
 	var out post.Unread
+	var a post.Actor
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		if err := checkBoard(ctx, tx, board); err != nil {
 			return err
 		}
-		a, err := actor(ctx, tx, board, who)
-		if err != nil {
+		var err error
+		if a, err = actor(ctx, tx, board, who); err != nil {
 			return err
 		}
 		if !req.Peek {
@@ -147,14 +161,14 @@ func (s *Store) Unread(ctx context.Context, who post.Identity, board string, req
 		}
 		out.Posts, out.Edited = posts(unread), posts(edited)
 		switch {
-		case req.Peek:
+		case !mark:
 			return nil
 		case !req.ToMe && req.Thread == 0:
 			return seeAll(ctx, tx, a.Reader(), board)
 		}
 		return see(ctx, tx, a.Reader(), append(unread, edited...))
 	})
-	return out, err
+	return out, a, err
 }
 
 // unreadRows returns the posts of a board, of those that keep keeps, that
