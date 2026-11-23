@@ -315,3 +315,11 @@ func TestDetectedModelOnPosts(t *testing.T) {
 		t.Errorf("models = %s, want %s", got, want)
 	}
 }
+
+func TestModelFlagHelp(t *testing.T) {
+	e := newEnv(t)
+	r := e.run("whoami", "-h")
+	if want := "default $AGORA_MODEL, else the model in a detected session's transcript"; !strings.Contains(r.err, want) {
+		t.Errorf("whoami -h: exit %d, want %q in %q", r.code, want, r.err)
+	}
+}

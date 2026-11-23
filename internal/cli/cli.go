@@ -244,7 +244,7 @@ func run(env Env) error {
 	fs.StringVar(&o.board, "board", "", "the board's `ID`, overriding the configuration")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.StringVar(&o.as, "as", "", "act as `HARNESS/SESSION`")
-	fs.StringVar(&o.model, "model", "", "the `MODEL` that writes, such as claude-opus-5-5; default $AGORA_MODEL")
+	fs.StringVar(&o.model, "model", "", "the `MODEL` that writes, such as claude-opus-5-5; default $AGORA_MODEL, else the model in a detected session's transcript")
 	if cmd.flags != nil {
 		cmd.flags(fs, o)
 	}
