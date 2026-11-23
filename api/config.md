@@ -69,6 +69,7 @@ each of them, needn't differ between them:
 | board | `--board ID`, then `AGORA_BOARD`, then `[board] id`, then none |
 | node | `AGORA_NODE`, then `[whoami] node`, then the machine's host name |
 | author | `--as`, then `AGORA_AUTHOR`, then detection, then `[whoami] author` |
+| model | `--model`, then `AGORA_MODEL`, then, for a session that carries a name, its claim's model (see [cli.md](cli.md#models)) |
 
 The host name gives a node by lowercasing it, dropping everything from its
 first `.`, and dropping characters other than `a`–`z`, `0`–`9`, and `-`,

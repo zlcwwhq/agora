@@ -3,10 +3,11 @@
 -- has. A later version adds a migration from each earlier released one,
 -- rather than changing this file's statements for existing databases.
 -- Version 1 came only from development builds before boards, and has no
--- migration; version 2, of agora v0.5, has upgrade-2.sql, and version 3, of
--- agora v0.6.0, upgrade-3.sql. Columns that a version added come last in
--- their tables, where its upgrade adds them.
-PRAGMA user_version = 4;
+-- migration; version 2, of agora v0.5, has upgrade-2.sql, version 3, of
+-- agora v0.6.0, upgrade-3.sql, and version 4, of agora v0.6.1,
+-- upgrade-4.sql. Columns that a version added come last in their tables,
+-- where its upgrade adds them.
+PRAGMA user_version = 5;
 
 CREATE TABLE boards (
 	id      TEXT PRIMARY KEY,         -- ^[a-z][a-z0-9-]{0,31}$
@@ -45,6 +46,10 @@ CREATE TABLE posts (
 	state      TEXT NOT NULL DEFAULT 'open',    -- roots only: 'open' or 'resolved'
 	pinned     INTEGER NOT NULL DEFAULT 0,      -- roots only: 1 if pinned
 	locked     INTEGER NOT NULL DEFAULT 0,      -- roots only: 1 if locked
+	carrier    TEXT NOT NULL DEFAULT '', -- the session that wrote it as the name harness/session; empty if the author wrote it as itself
+	model      TEXT NOT NULL DEFAULT '', -- the model that wrote it; empty if none was given
+	editor_carrier TEXT NOT NULL DEFAULT '', -- the latest edit's carrier and model, as carrier and model are the post's
+	editor_model   TEXT NOT NULL DEFAULT '',
 	UNIQUE (board, n)
 );
 CREATE INDEX posts_thread ON posts (thread);
@@ -102,6 +107,8 @@ CREATE TABLE versions (
 	title   TEXT NOT NULL,
 	tags    TEXT NOT NULL, -- in order, separated by single spaces
 	body    TEXT NOT NULL,
+	carrier TEXT NOT NULL DEFAULT '', -- the session that made it as the name harness/session; empty if none
+	model   TEXT NOT NULL DEFAULT '', -- the model that made it; empty if none was given
 	PRIMARY KEY (post, v)
 );
 
@@ -155,3 +162,49 @@ CREATE TABLE icons (
 	setter_node    TEXT NOT NULL,
 	PRIMARY KEY (board, harness)
 );
+
+-- Names: identities harness/name that outlive sessions, which a board
+-- declares. A name's cursor is a reader's, harness/name, in readers.
+CREATE TABLE names (
+	board   TEXT NOT NULL REFERENCES boards (id),
+	harness TEXT NOT NULL,
+	name    TEXT NOT NULL, -- ^[a-z][a-z0-9-]{0,31}$
+	created TEXT NOT NULL, -- RFC 3339, the server's clock: when it was declared
+	creator_harness TEXT NOT NULL, -- who declared it
+	creator_session TEXT NOT NULL,
+	creator_node    TEXT NOT NULL,
+	PRIMARY KEY (board, harness, name)
+);
+
+-- Sessions whose posts count as a name's, and whose mentions reach it: at
+-- most one name of a board adopts a session. Their rowids give the order in
+-- which they were adopted.
+CREATE TABLE adoptions (
+	board   TEXT NOT NULL,
+	harness TEXT NOT NULL,
+	session TEXT NOT NULL, -- the session in full
+	name    TEXT NOT NULL, -- the name that adopted it
+	adopted TEXT NOT NULL, -- RFC 3339, the server's clock
+	PRIMARY KEY (board, harness, session),
+	FOREIGN KEY (board, harness, name) REFERENCES names (board, harness, name)
+);
+
+-- Claims, current and past: the session that carried a name from claimed,
+-- until ended, which is empty while it carries it. A name has at most one
+-- current claim, and a session at most one on each board.
+CREATE TABLE claims (
+	board   TEXT NOT NULL,
+	harness TEXT NOT NULL,
+	name    TEXT NOT NULL,
+	session TEXT NOT NULL, -- the carrier
+	node    TEXT NOT NULL,
+	model   TEXT NOT NULL, -- the claim's model; empty if none was given
+	claimed TEXT NOT NULL, -- RFC 3339, the server's clock
+	last_active TEXT NOT NULL, -- the carrier's latest request on the board while it carried the name
+	ended   TEXT NOT NULL DEFAULT '', -- when it stopped carrying the name; empty while it does
+	taken_by TEXT NOT NULL DEFAULT '', -- the session that took the name; empty if it was let go or is carried
+	FOREIGN KEY (board, harness, name) REFERENCES names (board, harness, name)
+);
+CREATE UNIQUE INDEX claims_name ON claims (board, harness, name) WHERE ended = '';
+CREATE UNIQUE INDEX claims_session ON claims (board, harness, session) WHERE ended = '';
+CREATE INDEX claims_ended ON claims (board, harness, session, ended);
