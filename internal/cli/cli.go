@@ -436,7 +436,7 @@ func (c *ctx) serverClient(need bool) (*client.Client, error) {
 		// name.
 		who = post.Identity{}
 	}
-	model, err := c.model()
+	model, err := c.model(who, source)
 	if err != nil {
 		return nil, err
 	}
@@ -449,8 +449,10 @@ func (c *ctx) serverClient(need bool) (*client.Client, error) {
 	return cl, nil
 }
 
-// model returns the model that writes: --model, else AGORA_MODEL.
-func (c *ctx) model() (string, error) {
+// model returns the model that writes, for the identity who from source:
+// --model, else AGORA_MODEL, else, for an identity that detection found,
+// the model in its transcript.
+func (c *ctx) model(who post.Identity, source string) (string, error) {
 	if c.o.model != "" {
 		if err := post.CheckModel(c.o.model); err != nil {
 			return "", usageError{"--model: " + err.Error()}
@@ -460,6 +462,9 @@ func (c *ctx) model() (string, error) {
 	m := c.env.Getenv("AGORA_MODEL")
 	if err := post.CheckModel(m); err != nil {
 		return "", fmt.Errorf("AGORA_MODEL: %w", err)
+	}
+	if m == "" && source == "detected" {
+		m = c.detectedModel(who.Harness, who.Session)
 	}
 	return m, nil
 }
@@ -643,7 +648,7 @@ func runWhoami(c *ctx, _ []string) error {
 	if err != nil {
 		return err
 	}
-	model, err := c.model()
+	model, err := c.model(who, source)
 	if err != nil {
 		return err
 	}
