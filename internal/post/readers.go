@@ -2,16 +2,31 @@ package post
 
 import (
 	"slices"
-	"unicode"
-	"unicode/utf8"
+	"strings"
 )
 
-// Reaction is a reaction to a post and the authors that gave it, displayed,
-// in the order in which they gave it.
+// Reaction is a reaction to a post, by its name, and the authors that gave
+// it, displayed, in the order in which they gave it.
 type Reaction struct {
 	Reaction string   `json:"reaction"`
 	Authors  []string `json:"authors"`
 }
+
+// GitHubReaction is one of GitHub's reactions: its name, as GitHub's API
+// gives it, and its emoji.
+type GitHubReaction struct {
+	Name, Emoji string
+}
+
+// GitHubReactions are the reactions, GitHub's, in its order.
+var GitHubReactions = []GitHubReaction{
+	{"+1", "\U0001F44D"}, {"-1", "\U0001F44E"}, {"laugh", "\U0001F604"}, {"hooray", "\U0001F389"},
+	{"confused", "\U0001F615"}, {"heart", "\u2764\uFE0F"}, {"rocket", "\U0001F680"}, {"eyes", "\U0001F440"},
+}
+
+// reactionAliases are the other ways to give a reaction: ack, and ❤ without
+// its variation selector.
+var reactionAliases = map[string]string{"ack": "eyes", "\u2764": "heart"}
 
 // React asks to react to a post, or to take the reaction back.
 type React struct {
@@ -26,19 +41,35 @@ type Reacted struct {
 	Reactions []Reaction `json:"reactions"`
 }
 
-// CheckReaction returns an error of kind Invalid unless s is a reaction: 1 to
-// 32 characters without whitespace or control characters, kept as given.
-func CheckReaction(s string) error {
-	ok := utf8.ValidString(s) && utf8.RuneCountInString(s) >= 1 && utf8.RuneCountInString(s) <= 32
-	for _, r := range s {
-		if unicode.IsSpace(r) || unicode.IsControl(r) {
-			ok = false
+// ParseReaction returns the name of the reaction that s gives: its name, its
+// emoji, or an alias, ack for eyes. Anything else is an error of kind
+// Invalid.
+func ParseReaction(s string) (string, error) {
+	if name, ok := reactionAliases[s]; ok {
+		return name, nil
+	}
+	for _, r := range GitHubReactions {
+		if s == r.Name || s == r.Emoji {
+			return r.Name, nil
 		}
 	}
-	if !ok {
-		return Errorf(Invalid, "invalid reaction %q: reactions have 1 to 32 characters, without whitespace or control characters, such as +1, ack, or 👀", s)
+	var names []string
+	for _, r := range GitHubReactions {
+		names = append(names, r.Name+" "+r.Emoji)
 	}
-	return nil
+	return "", Errorf(Invalid, "invalid reaction %q: a reaction is one of GitHub's, by its name or its emoji: %s; ack is eyes",
+		s, strings.Join(names, ", "))
+}
+
+// Emoji returns the emoji of the reaction named name, or name if there is
+// none.
+func Emoji(name string) string {
+	for _, r := range GitHubReactions {
+		if r.Name == name {
+			return r.Emoji
+		}
+	}
+	return name
 }
 
 // Version is a version of a post, as agora history lists it.

@@ -34,6 +34,9 @@ type Post struct {
 	// Mentions are the body's, as Mention.String writes them.
 	Mentions  []string   `json:"mentions"`
 	Reactions []Reaction `json:"reactions"`
+	// Score is the number of up votes minus that of down votes.
+	Score int   `json:"score"`
+	Votes Votes `json:"votes"`
 	// Attachments are in the order of their names.
 	Attachments []Attachment `json:"attachments"`
 }
@@ -55,6 +58,8 @@ type Thread struct {
 	State  string `json:"state"`
 	Pinned bool   `json:"pinned"`
 	Locked bool   `json:"locked"`
+	// Score is the root's.
+	Score int `json:"score"`
 }
 
 // Board is a board, as api/cli.md's <board> shape.

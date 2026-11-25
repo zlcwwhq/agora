@@ -57,12 +57,39 @@
         {{- if .Tags}}
         <div class="post-tags">{{range .Tags}}<a class="label {{hue .}}" href="{{$.Query.ToggleTag .}}">{{.}}</a>{{end}}</div>
         {{- end}}
-        {{- if .Reactions}}
-        <ul class="reactions" aria-label="Reactions">
-          {{- range .Reactions}}
-          <li class="reaction" title="{{join .Authors ", "}}"><span class="r">{{.Reaction}}</span><span class="n">{{len .Authors}}</span><span class="by">{{join .Authors ", "}}</span></li>
+        {{- if $.Forms}}
+        <div class="feedback">
+          <form class="votes" action="{{$.ThreadURL .ID}}/vote" method="post" aria-label="Votes">
+            {{- $up := eq .MyVote "up"}}{{$down := eq .MyVote "down"}}
+            <button type="submit" class="vote up{{if $up}} on{{end}}" name="vote" value="{{if $up}}none{{else}}up{{end}}" aria-pressed="{{$up}}" title="{{if $up}}Take back your up vote{{else}}Vote up{{end}}">{{template "i-up"}}<span class="sr">Vote up</span></button>
+            <span class="score" title="{{template "votes-title" .Votes}}">{{.Score}}</span><span class="sr">{{template "votes-title" .Votes}}</span>
+            <button type="submit" class="vote down{{if $down}} on{{end}}" name="vote" value="{{if $down}}none{{else}}down{{end}}" aria-pressed="{{$down}}" title="{{if $down}}Take back your down vote{{else}}Vote down{{end}}">{{template "i-down"}}<span class="sr">Vote down</span></button>
+          </form>
+          <form class="reactions" action="{{$.ThreadURL .ID}}/react" method="post" aria-label="Reactions">
+            {{- range .Reactions}}
+            <button type="submit" class="reaction{{if .Mine}} mine{{end}}" name="{{if .Mine}}undo{{else}}reaction{{end}}" value="{{.Reaction}}" aria-pressed="{{.Mine}}" title="{{join .Authors ", "}} reacted with {{.Emoji}}{{if .Mine}}: press to take yours back{{end}}"><span class="r">{{.Emoji}}</span><span class="n">{{len .Authors}}</span><span class="sr"> {{.Reaction}}: {{join .Authors ", "}}</span></button>
+            {{- end}}
+            <details class="picker">
+              <summary class="reaction add" title="Add a reaction">{{template "i-smile"}}<span class="sr">Add a reaction</span></summary>
+              <div class="picker-box">
+                {{- range .Picker}}
+                <button type="submit" class="pick{{if .Mine}} mine{{end}}" name="{{if .Mine}}undo{{else}}reaction{{end}}" value="{{.Reaction}}" aria-pressed="{{.Mine}}" aria-label="{{.Reaction}}" title="{{if .Mine}}Take back your {{.Emoji}}{{else}}{{.Reaction}}{{end}}">{{.Emoji}}</button>
+                {{- end}}
+              </div>
+            </details>
+          </form>
+        </div>
+        {{- else}}
+        <div class="feedback">
+          <span class="votes" title="{{template "votes-title" .Votes}}">{{template "i-up"}}<span class="score">{{.Score}}</span>{{template "i-down"}}<span class="sr">{{template "votes-title" .Votes}}</span></span>
+          {{- if .Reactions}}
+          <ul class="reactions" aria-label="Reactions">
+            {{- range .Reactions}}
+            <li class="reaction" title="{{join .Authors ", "}} reacted with {{emoji .Reaction}}"><span class="r">{{emoji .Reaction}}</span><span class="n">{{len .Authors}}</span><span class="sr"> {{.Reaction}}: {{join .Authors ", "}}</span></li>
+            {{- end}}
+          </ul>
           {{- end}}
-        </ul>
+        </div>
         {{- end}}
         {{- if .Attachments}}
         <ul class="attachments" aria-label="Attachments">

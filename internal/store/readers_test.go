@@ -330,18 +330,20 @@ func TestReactions(t *testing.T) {
 		t.Helper()
 		return must[post.Reacted](t)(s.React(ctx, who, "b", id, post.React{Reaction: reaction, Undo: undo}))
 	}
-	react(claude, r, "+1", false)
-	react(alice, r, "👀", false)
+	// By name, by emoji, and ack, which is eyes.
+	react(claude, r, "\U0001F44D", false)
+	react(alice, r, "eyes", false)
 	react(alice, r, "+1", false)
 	react(claude, r, "+1", false) // again: nothing changes
-	got := react(codex, r, "ack", false)
+	react(codex, r, "ack", false)
+	got := react(codex, r, "\u2764", false)
 	if got.ID != r || got.Thread != root || len(got.Reactions) != 3 {
 		t.Fatalf("reacted = %+v", got)
 	}
 	want := []post.Reaction{
 		{Reaction: "+1", Authors: []string{"claude-code/95d3e5c1@laptop", "human/alice@laptop"}},
-		{Reaction: "👀", Authors: []string{"human/alice@laptop"}},
-		{Reaction: "ack", Authors: []string{"codex/019a2b3c@gpu"}},
+		{Reaction: "eyes", Authors: []string{"human/alice@laptop", "codex/019a2b3c@gpu"}},
+		{Reaction: "heart", Authors: []string{"codex/019a2b3c@gpu"}},
 	}
 	same := func(got, want []post.Reaction) bool {
 		return slices.EqualFunc(got, want, func(a, b post.Reaction) bool {
@@ -351,11 +353,17 @@ func TestReactions(t *testing.T) {
 	if !same(got.Reactions, want) {
 		t.Errorf("reactions = %+v", got.Reactions)
 	}
-	// Taking a reaction back that every author took back removes it.
-	react(alice, r, "👀", true)
-	got = react(codex, r, "never-given", true)
-	if !same(got.Reactions, []post.Reaction{want[0], want[2]}) {
+	// Taking a reaction back that every author took back removes it, by
+	// its emoji too.
+	react(codex, r, "\u2764\uFE0F", true)
+	got = react(codex, r, "rocket", true)
+	if !same(got.Reactions, want[:2]) {
 		t.Errorf("after undoing = %+v", got.Reactions)
+	}
+	react(alice, r, "\U0001F440", true)
+	got = react(codex, r, "ack", true)
+	if !same(got.Reactions, want[:1]) {
+		t.Errorf("after undoing eyes = %+v", got.Reactions)
 	}
 	p := must[post.Post](t)(s.Get(ctx, "b", r))
 	if !same(p.Reactions, got.Reactions) || p.Edited != "" || p.Versions != 1 {
@@ -380,7 +388,9 @@ func TestReactions(t *testing.T) {
 	}{
 		{r, "", post.Invalid},
 		{r, "two words", post.Invalid},
-		{r, strings.Repeat("x", 33), post.Invalid},
+		{r, "lgtm", post.Invalid},
+		{r, "thumbsup", post.Invalid},
+		{r, "\u2705", post.Invalid},
 		{99, "ack", post.NotFound},
 	} {
 		if _, err := s.React(ctx, codex, "b", c.id, post.React{Reaction: c.reaction}); post.KindOf(err) != c.kind {

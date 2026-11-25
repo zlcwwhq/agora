@@ -33,6 +33,10 @@ type Store interface {
 	Unread(ctx context.Context, who post.Identity, board string, req post.UnreadRequest) (post.Unread, error)
 	History(ctx context.Context, board string, id int64) (post.History, error)
 	React(ctx context.Context, who post.Identity, board string, id int64, req post.React) (post.Reacted, error)
+	Vote(ctx context.Context, who post.Identity, board string, id int64, req post.Vote) (post.Voted, error)
+	// Given returns what who gave each post of the thread that contains id,
+	// leaving out the posts that it gave nothing.
+	Given(ctx context.Context, who post.Identity, board string, id int64) (map[int64]post.Given, error)
 	ThreadStore
 	IconStore
 	NameStore

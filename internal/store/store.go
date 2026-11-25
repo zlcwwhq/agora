@@ -717,11 +717,12 @@ func thread(ctx context.Context, q querier, root int64) (threadInfo, error) {
 	var harness, session, node string
 	err := q.QueryRowContext(ctx, `SELECT r.board, r.n, r.title, r.harness, r.session, r.node, r.created,
 		(SELECT count(*) FROM posts c WHERE c.thread = r.pk),
-		l.n, l.created, r.state, r.pinned, r.locked
+		l.n, l.created, r.state, r.pinned, r.locked,
+		(SELECT coalesce(sum(v.vote), 0) FROM votes v WHERE v.post = r.pk)
 		FROM posts r JOIN posts l ON l.pk = (SELECT max(pk) FROM posts m WHERE m.pk = r.pk OR m.thread = r.pk)
 		WHERE r.pk = ? AND r.thread IS NULL`, root).
 		Scan(&t.Board, &t.ID, &t.Title, &harness, &session, &node, &t.Created, &t.Replies, &t.last, &t.LastActivity,
-			&t.State, &t.Pinned, &t.Locked)
+			&t.State, &t.Pinned, &t.Locked, &t.Score)
 	if err != nil {
 		return t, err
 	}

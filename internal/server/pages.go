@@ -71,6 +71,7 @@ func (p *pages) route(mux *http.ServeMux) {
 		mux.HandleFunc("/b/{board}/t/{id}/edit", p.handle(handlers{http.MethodGet: p.inBoard(p.editForm), http.MethodPost: withFiles(p.inBoard(p.edit))}))
 		mux.HandleFunc("/b/{board}/t/{id}/delete", p.handle(handlers{http.MethodPost: p.inBoard(p.remove)}))
 		p.routeThreadForms(mux)
+		p.routeReactionForms(mux)
 	}
 	p.routeAttachments(mux)
 	p.routeIcons(mux)
@@ -382,7 +383,15 @@ func (p *pages) showThread(w http.ResponseWriter, r *http.Request, b *post.Board
 		p.boardFailed(w, r, b, err, f)
 		return
 	}
-	v, err := p.threadView(r.Context(), b, show)
+	// What the person gave marks the buttons that take it back.
+	var given map[int64]post.Given
+	if p.forms {
+		if given, err = p.s.Store.Given(r.Context(), p.s.Person, b.ID, id); err != nil {
+			p.boardFailed(w, r, b, err, f)
+			return
+		}
+	}
+	v, err := p.threadView(r.Context(), b, show, given)
 	if err != nil {
 		p.boardFailed(w, r, b, err, f)
 		return

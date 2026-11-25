@@ -18,3 +18,9 @@ func (c *Client) React(ctx context.Context, id int64, req post.React) (post.Reac
 	var out post.Reacted
 	return out, c.do(ctx, http.MethodPost, c.postPath(id)+"/reactions", nil, req, &out)
 }
+
+// Vote votes on id, or takes the vote back, as agora vote.
+func (c *Client) Vote(ctx context.Context, id int64, req post.Vote) (post.Voted, error) {
+	var out post.Voted
+	return out, c.do(ctx, http.MethodPost, c.postPath(id)+"/votes", nil, req, &out)
+}

@@ -80,7 +80,7 @@ func TestReaderCommands(t *testing.T) {
 		}
 	}
 	e.json(t, &reacted, append([]string{"react", "1", "👀"}, asClaude...)...)
-	if reacted.ID != 1 || len(reacted.Reactions) != 1 || reacted.Reactions[0].Reaction != "👀" ||
+	if reacted.ID != 1 || len(reacted.Reactions) != 1 || reacted.Reactions[0].Reaction != "eyes" ||
 		!slices.Equal(reacted.Reactions[0].Authors, []string{"claude-code/95d3e5c1@testbox"}) {
 		t.Errorf("react = %+v", reacted)
 	}

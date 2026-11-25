@@ -25,7 +25,7 @@ func TestLockedThreadReactionsAndSingleTags(t *testing.T) {
 	}
 
 	r := must[post.Reacted](t)(s.React(ctx, codex, "b", rep, post.React{Reaction: "ack"}))
-	if len(r.Reactions) != 1 || r.Reactions[0].Reaction != "ack" {
+	if len(r.Reactions) != 1 || r.Reactions[0].Reaction != "eyes" {
 		t.Errorf("an agent's reaction in a locked thread: %+v", r.Reactions)
 	}
 

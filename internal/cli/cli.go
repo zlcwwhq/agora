@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -144,9 +145,13 @@ var commands = []command{
 			fs.Var(&o.detach, "detach", "remove the post's attachment `NAME`, repeatable")
 		}},
 	{name: "history", args: "ID", summary: "show every version of a post", run: runHistory, positional: 1},
-	{name: "react", args: "ID REACTION [--undo]", summary: "react to a post, such as with ack, or take the reaction back", run: runReact, positional: 2,
+	{name: "react", args: "ID REACTION [--undo]", summary: "react to a post with one of GitHub's reactions, +1 -1 laugh hooray confused heart rocket eyes, or take it back", run: runReact, positional: 2,
 		flags: func(fs *flag.FlagSet, o *opts) {
 			fs.BoolVar(&o.undo, "undo", false, "take the reaction back")
+		}},
+	{name: "vote", args: "ID (up | down | --undo)", summary: "vote a post up or down, or take the vote back", run: runVote, positional: -1,
+		flags: func(fs *flag.FlagSet, o *opts) {
+			fs.BoolVar(&o.undo, "undo", false, "take the vote back")
 		}},
 	{name: "delete", args: "ID", summary: "delete a post for good, and a thread's first post with its thread", run: runDelete, positional: 1},
 	threadCommand,
@@ -289,16 +294,44 @@ func run(env Env) error {
 func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for {
-		if err := fs.Parse(args); err != nil {
+		// A negative number, such as the reaction -1, is an argument, not
+		// a flag, unless it is a flag's value: flags stop before it.
+		end := negativeArg(fs, args)
+		if err := fs.Parse(args[:end]); err != nil {
 			return nil, err
 		}
-		args = fs.Args()
+		args = append(fs.Args(), args[end:]...)
 		if len(args) == 0 {
 			return positional, nil
 		}
 		positional = append(positional, args[0])
 		args = args[1:]
 	}
+}
+
+// negativeNumber matches the arguments that are negative numbers.
+var negativeNumber = regexp.MustCompile(`^-[0-9]+$`)
+
+// negativeArg returns the index of the first of args that is a negative
+// number and not the value of the flag before it, or len(args).
+func negativeArg(fs *flag.FlagSet, args []string) int {
+	for i, a := range args {
+		if a == "--" {
+			break
+		}
+		if !negativeNumber.MatchString(a) {
+			continue
+		}
+		if i > 0 && strings.HasPrefix(args[i-1], "-") && !strings.Contains(args[i-1], "=") {
+			if f := fs.Lookup(strings.TrimLeft(args[i-1], "-")); f != nil {
+				if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); !ok || !bf.IsBoolFlag() {
+					continue
+				}
+			}
+		}
+		return i
+	}
+	return len(args)
 }
 
 func printUsage(w io.Writer) {
@@ -928,6 +961,9 @@ func hashTags(tags []string) string { return "#" + strings.Join(tags, " #") }
 func (c *ctx) printThreadLine(t post.Thread) {
 	c.printf("#%-6d %s\n", t.ID, t.Title)
 	meta := append(threadFlags(t), plural(t.Replies, "reply", "replies"), t.Author, "active "+when(t.LastActivity))
+	if t.Score != 0 {
+		meta = append(meta, fmt.Sprintf("score %d", t.Score))
+	}
 	if len(t.Tags) > 0 {
 		meta = append(meta, hashTags(t.Tags))
 	}
@@ -964,6 +1000,7 @@ func (c *ctx) printPost(p post.Post, focus bool, context string) {
 		c.printf("%s", p.Body)
 	}
 	c.printReactions(p.Reactions)
+	c.printVotes(p)
 	c.printAttachments(p)
 	c.printf("\n")
 }
@@ -986,6 +1023,9 @@ func runShow(c *ctx, args []string) error {
 	}
 	c.printf("#%d %s\n", s.Thread.ID, s.Thread.Title)
 	meta := append(threadFlags(s.Thread), s.Thread.Author, plural(s.Thread.Replies, "reply", "replies"))
+	if s.Thread.Score != 0 {
+		meta = append(meta, fmt.Sprintf("score %d", s.Thread.Score))
+	}
 	if len(s.Thread.Tags) > 0 {
 		meta = append(meta, hashTags(s.Thread.Tags))
 	}

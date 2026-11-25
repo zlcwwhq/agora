@@ -57,16 +57,32 @@ func TestMentionNames(t *testing.T) {
 	}
 }
 
-func TestCheckReaction(t *testing.T) {
-	for _, ok := range []string{"+1", "ack", "👀", "👨‍👩‍👧", "✔️", strings.Repeat("x", 32), "已读"} {
-		if err := CheckReaction(ok); err != nil {
-			t.Errorf("CheckReaction(%q) = %v", ok, err)
+func TestParseReaction(t *testing.T) {
+	for in, want := range map[string]string{
+		"+1": "+1", "\U0001F44D": "+1", "-1": "-1", "\U0001F44E": "-1", "laugh": "laugh", "\U0001F604": "laugh",
+		"hooray": "hooray", "\U0001F389": "hooray", "confused": "confused", "\U0001F615": "confused",
+		"heart": "heart", "\u2764\uFE0F": "heart", "\u2764": "heart", "rocket": "rocket", "\U0001F680": "rocket",
+		"eyes": "eyes", "\U0001F440": "eyes", "ack": "eyes",
+	} {
+		if got, err := ParseReaction(in); err != nil || got != want {
+			t.Errorf("ParseReaction(%q) = %q, %v, want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", " ack", "a b", "a\tb", "ack\n", "\x00", "\u0085", "\xff", strings.Repeat("x", 33)} {
-		if err := CheckReaction(bad); KindOf(err) != Invalid {
-			t.Errorf("CheckReaction(%q) = %v, want Invalid", bad, err)
+	for _, bad := range []string{"", "Eyes", " eyes", ":+1:", "thumbsup", "\u2714\uFE0F", "\U0001F44D\U0001F3FD", "已读", "ack "} {
+		if got, err := ParseReaction(bad); KindOf(err) != Invalid || !strings.Contains(err.Error(), "+1 \U0001F44D, -1 \U0001F44E") {
+			t.Errorf("ParseReaction(%q) = %q, %v, want an error of kind Invalid that lists the reactions", bad, got, err)
 		}
+	}
+	if len(GitHubReactions) != 8 {
+		t.Fatalf("%d reactions, want GitHub's 8", len(GitHubReactions))
+	}
+	for _, r := range GitHubReactions {
+		if Emoji(r.Name) != r.Emoji {
+			t.Errorf("Emoji(%q) = %q, want %q", r.Name, Emoji(r.Name), r.Emoji)
+		}
+	}
+	if Emoji("unknown") != "unknown" {
+		t.Errorf("Emoji of an unknown name = %q", Emoji("unknown"))
 	}
 }
 

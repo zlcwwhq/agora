@@ -18,6 +18,8 @@ import (
 var funcs = template.FuncMap{
 	"hue":  hue,
 	"join": strings.Join,
+	// emoji shows a reaction, which posts give by name.
+	"emoji": post.Emoji,
 	// bucket rounds a percentage up to a multiple of 5, a w-N class.
 	"bucket": func(percent int) int { return min(max((percent+4)/5*5, 5), 100) },
 	"plural": func(n int, one, many string) string {
@@ -236,6 +238,7 @@ type threadRow struct {
 	Matches         []matchRow
 	State           string
 	Pinned, Locked  bool
+	Score           int
 }
 
 // matchRow is a post that matched a search.
@@ -256,7 +259,7 @@ func (p *pages) threadRow(t post.Thread) threadRow {
 		ID: t.ID, Title: t.Title, Author: parseWho(t.Author),
 		Created: p.stamp(t.Created), Active: p.stamp(t.LastActivity),
 		Replies: t.Replies, Tags: t.Tags,
-		State: t.State, Pinned: t.Pinned, Locked: t.Locked,
+		State: t.State, Pinned: t.Pinned, Locked: t.Locked, Score: t.Score,
 	}
 }
 
@@ -415,8 +418,15 @@ type postView struct {
 	Tags          []string
 	Body          template.HTML
 	Root          bool
-	Reactions     []post.Reaction
-	Attachments   []attachmentRow
+	Reactions     []reactionView
+	// Picker holds GitHub's reactions, which the forms offer.
+	Picker []reactionView
+	// Score and Votes are the post's, and MyVote the person's, VoteNone
+	// without one.
+	Score       int
+	Votes       post.Votes
+	MyVote      string
+	Attachments []attachmentRow
 }
 
 // participant is an author in a thread.
@@ -438,7 +448,9 @@ type threadView struct {
 	Form        form
 }
 
-func (p *pages) threadView(ctx context.Context, b *post.Board, show post.Show) (threadView, error) {
+// threadView returns the data of a thread's page, with what the person
+// gave each post, as given says.
+func (p *pages) threadView(ctx context.Context, b *post.Board, show post.Show, given map[int64]post.Given) (threadView, error) {
 	v := threadView{base: p.base(b, "", show.Thread.Title, query{}), Thread: p.threadRow(show.Thread), Backlinks: show.Backlinks, Focus: show.Focus}
 	authors := map[int64]string{}
 	counts := map[string]*participant{}
@@ -454,9 +466,15 @@ func (p *pages) threadView(ctx context.Context, b *post.Board, show post.Show) (
 			ID: ps.ID, Thread: ps.Thread, Who: parseWho(ps.Author), Author: ps.Author,
 			Via: ps.Carrier, Model: ps.Model,
 			Created: p.stamp(ps.Created), Editor: ps.Editor,
-			Tags: ps.Tags, Body: body, Root: ps.IsRoot(), Reactions: ps.Reactions,
+			Tags: ps.Tags, Body: body, Root: ps.IsRoot(),
+			Score: ps.Score, Votes: ps.Votes, MyVote: post.VoteNone,
 			Attachments: attachmentRows(b.ID, ps),
 		}
+		g, ok := given[ps.ID]
+		if ok {
+			pv.MyVote = g.Vote
+		}
+		pv.Reactions, pv.Picker = reactionViews(ps.Reactions, g)
 		if ps.Edited != "" {
 			e := p.stamp(ps.Edited)
 			pv.Edited = &e

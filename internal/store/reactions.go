@@ -9,13 +9,16 @@ import (
 )
 
 // React reacts to a post as who, or takes who's reaction back. Anyone may
-// react to any post, once with each reaction, and reacting isn't an edit.
+// react to any post, once with each of GitHub's reactions, by its name or
+// its emoji, and reacting isn't an edit.
 func (s *Store) React(ctx context.Context, who post.Identity, board string, id int64, req post.React) (post.Reacted, error) {
-	if err := post.CheckReaction(req.Reaction); err != nil {
+	name, err := post.ParseReaction(req.Reaction)
+	if err != nil {
 		return post.Reacted{}, err
 	}
+	req.Reaction = name
 	var out post.Reacted
-	err := s.tx(ctx, func(tx *sql.Tx) error {
+	err = s.tx(ctx, func(tx *sql.Tx) error {
 		if err := checkBoard(ctx, tx, board); err != nil {
 			return err
 		}
@@ -79,8 +82,8 @@ func reactionsOf(ctx context.Context, q querier, pk int64) ([]post.Reaction, err
 	return out, rs.Close()
 }
 
-// readerFields fills what a post shows of its versions, mentions, and
-// reactions.
+// readerFields fills what a post shows of its versions, mentions,
+// reactions, and votes.
 func readerFields(ctx context.Context, q querier, r *row) error {
 	if err := q.QueryRowContext(ctx, "SELECT count(*) + 1 FROM versions WHERE post = ?", r.pk).Scan(&r.Versions); err != nil {
 		return err
@@ -89,6 +92,9 @@ func readerFields(ctx context.Context, q querier, r *row) error {
 	if r.Mentions, err = mentionsOf(ctx, q, r.pk); err != nil {
 		return err
 	}
-	r.Reactions, err = reactionsOf(ctx, q, r.pk)
+	if r.Reactions, err = reactionsOf(ctx, q, r.pk); err != nil {
+		return err
+	}
+	r.Score, r.Votes, err = votesOf(ctx, q, r.pk)
 	return err
 }

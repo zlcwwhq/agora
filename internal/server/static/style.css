@@ -269,7 +269,7 @@ a.label:hover { text-decoration: none; border-color: hsl(var(--h, 234) 60% 55%);
 .topics { overflow: hidden; }
 .topics-head, .topic {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px 76px 116px;
+  grid-template-columns: minmax(0, 1fr) 210px 64px 76px 116px;
   gap: 16px; align-items: center;
   padding: 0 20px;
 }
@@ -292,9 +292,9 @@ a.label:hover { text-decoration: none; border-color: hsl(var(--h, 234) 60% 55%);
 .t-author { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13.5px; color: var(--text-2); }
 .t-author .hicon { width: 28px; height: 28px; border-radius: 8px; }
 .t-author .who { overflow: hidden; }
-.t-replies { display: flex; flex-direction: column; line-height: 1.2; }
-.t-replies .num { font-size: 16px; font-weight: 680; color: var(--text); }
-.t-replies .lbl { font-size: 12px; color: var(--text-3); }
+.t-replies, .t-votes { display: flex; flex-direction: column; line-height: 1.2; }
+.t-replies .num, .t-votes .num { font-size: 16px; font-weight: 680; color: var(--text); font-variant-numeric: tabular-nums; }
+.t-replies .lbl, .t-votes .lbl { font-size: 12px; color: var(--text-3); }
 .t-active { font-size: 13.5px; color: var(--text-2); white-space: nowrap; }
 .matches { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .matches a {
@@ -387,13 +387,52 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .replyto:hover { border-left-color: var(--accent); text-decoration: none; }
 .body { padding: 14px 18px 4px; }
 .post-tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 18px 12px; }
-.reactions { list-style: none; margin: 0; padding: 0 18px 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+/* Votes and reactions, under a post's body */
+.feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 18px 12px; min-width: 0; }
+.votes {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px; flex: none;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
+}
+span.votes { padding: 2px 8px; color: var(--text-3); }
+.votes .score { min-width: 1.6em; text-align: center; font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.vote {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0;
+  border: 0; border-radius: 999px; background: none; color: var(--text-3); cursor: pointer;
+}
+.vote:hover { background: var(--surface-3); color: var(--text); }
+.vote.up.on { color: var(--on-accent); background: var(--accent); }
+.vote.down.on { color: #fff; background: var(--danger); }
+@media (prefers-color-scheme: dark) { .vote.down.on { color: #2a0c10; } }
+.reactions { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+/* The form's buttons sit in the row beside the votes, so that only an open
+   picker that doesn't fit moves to a line of its own. */
+form.reactions { display: contents; }
 .reaction {
   display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%;
-  padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); font-size: 13px;
+  padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2);
+  font: 13px/1.5 var(--sans); color: var(--text-2);
 }
 .reaction .n { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-.reaction .by { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.reaction { cursor: pointer; }
+button.reaction:hover { border-color: var(--border-strong); background: var(--surface-3); }
+.reaction.mine { border-color: var(--accent-line); background: var(--accent-soft); }
+.reaction.mine .n { color: var(--accent); }
+/* Posts' cards clip what overflows them, so the open picker takes its place
+   in the row, wrapping to a line of its own when it doesn't fit. */
+.picker { display: inline-block; max-width: 100%; }
+.picker > summary { display: inline-flex; vertical-align: middle; list-style: none; cursor: pointer; align-items: center; padding: 3px 8px; color: var(--text-3); }
+.picker > summary::-webkit-details-marker { display: none; }
+.picker > summary:hover, .picker[open] > summary { color: var(--text); border-color: var(--border-strong); }
+.picker-box {
+  display: inline-flex; flex-wrap: wrap; vertical-align: middle; gap: 2px; margin-left: 4px; padding: 2px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow);
+}
+.pick {
+  width: 34px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 6px;
+  background: none; font-size: 17px; line-height: 1; cursor: pointer;
+}
+.pick:hover { background: var(--surface-3); }
+.pick.mine { background: var(--accent-soft); border-color: var(--accent-line); }
 .post-actions {
   display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px;
   padding: 8px 12px; border-top: 1px solid var(--border);
@@ -584,7 +623,7 @@ input[type="file"] { font: inherit; font-size: 13.5px; color: var(--text-2); }
 @media (max-width: 980px) {
   .layout, .compose-page { grid-template-columns: minmax(0, 1fr); }
   .side { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-  .topics-head, .topic { grid-template-columns: minmax(0, 1fr) 180px 64px 100px; gap: 12px; }
+  .topics-head, .topic { grid-template-columns: minmax(0, 1fr) 180px 56px 64px 100px; gap: 12px; }
   .boards .topics-head, .boards .topic { grid-template-columns: minmax(0, 1fr) 64px 64px 100px; }
 }
 
@@ -602,14 +641,15 @@ input[type="file"] { font: inherit; font-size: 13.5px; color: var(--text-2); }
   .thread-head h1 { font-size: 23px; }
   .topics-head { display: none; }
   .topic {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "main main main" "author author replies" "author author active";
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "main main main main" "author author votes replies" "author author active active";
     gap: 8px 12px; padding: 14px 16px;
   }
   .t-main { grid-area: main; }
   .t-author { grid-area: author; }
   .t-replies { grid-area: replies; flex-direction: row; align-items: baseline; gap: 2px; justify-self: end; }
-  .t-replies .num { font-size: 13.5px; }
+  .t-votes { grid-area: votes; flex-direction: row; align-items: baseline; gap: 2px; justify-self: end; }
+  .t-replies .num, .t-votes .num { font-size: 13.5px; }
   .t-active { grid-area: active; justify-self: end; font-size: 12.5px; }
   .t-author .hicon { width: 22px; height: 22px; border-radius: 6px; }
   .post { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -619,6 +659,7 @@ input[type="file"] { font: inherit; font-size: 13.5px; color: var(--text-2); }
   .body { padding: 12px 14px 2px; }
   .replyto { margin: 10px 14px 0; }
   .post-tags, .attachments { padding: 4px 14px 10px; }
+  .feedback { padding: 0 14px 10px; }
   .reply-box, .cli-hint { margin-left: 0; }
   .compose { padding: 16px; }
   .confirm { margin-left: 0; }

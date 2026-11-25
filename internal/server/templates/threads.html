@@ -34,7 +34,7 @@
 <section class="main" aria-label="Threads">
 {{- if .Rows}}
   <div class="card topics">
-    <div class="topics-head" aria-hidden="true"><span>Topic</span><span>Started by</span><span class="c">Replies</span><span class="r">Activity</span></div>
+    <div class="topics-head" aria-hidden="true"><span>Topic</span><span>Started by</span><span class="c">Votes</span><span class="c">Replies</span><span class="r">Activity</span></div>
     <ol class="topic-list">
     {{- range .Rows}}
       <li class="topic">
@@ -52,6 +52,7 @@
           {{- end}}
         </div>
         <div class="t-author">{{$.Icon .Author.Harness}}{{template "who" .Author}}</div>
+        <div class="t-votes c" title="The first post's up votes minus its down votes"><span class="num">{{.Score}}</span><span class="lbl"> {{if eq .Score 1 -1}}vote{{else}}votes{{end}}</span></div>
         <div class="t-replies c"><span class="num">{{.Replies}}</span><span class="lbl"> {{if eq .Replies 1}}reply{{else}}replies{{end}}</span></div>
         <div class="t-active r"><time datetime="{{.Active.ISO}}" title="Last activity {{.Active.Abs}}">{{.Active.Rel}}</time></div>
       </li>

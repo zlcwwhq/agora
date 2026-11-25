@@ -30,6 +30,7 @@ func (s *server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+b+"/unread", s.apiUnread)
 	mux.HandleFunc("GET "+b+"/posts/{id}/history", s.apiHistory)
 	mux.HandleFunc("POST "+b+"/posts/{id}/reactions", s.apiReact)
+	mux.HandleFunc("POST "+b+"/posts/{id}/votes", s.apiVote)
 	s.routeThreadAPI(mux, b)
 	s.routeIconAPI(mux, b)
 	s.routeNameAPI(mux, b)
@@ -45,6 +46,7 @@ func (s *server) routeAPI(mux *http.ServeMux) {
 
 		b + "/posts/{id}/history":   "GET, HEAD",
 		b + "/posts/{id}/reactions": "POST",
+		b + "/posts/{id}/votes":     "POST",
 	} {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Allow", allow)

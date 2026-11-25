@@ -69,8 +69,8 @@ func runReact(c *ctx, args []string) error {
 	if err != nil {
 		return err
 	}
-	reaction := args[1]
-	if err := post.CheckReaction(reaction); err != nil {
+	reaction, err := post.ParseReaction(args[1])
+	if err != nil {
 		return usageError{err.Error()}
 	}
 	cl, err := c.client(true)
@@ -88,19 +88,20 @@ func runReact(c *ctx, args []string) error {
 	if c.o.undo {
 		verb = "took back"
 	}
-	c.printf("%s %s on #%d  %s\n", verb, reaction, r.ID, c.postURL(r.Thread, r.ID))
+	c.printf("%s %s %s on #%d  %s\n", verb, post.Emoji(reaction), reaction, r.ID, c.postURL(r.Thread, r.ID))
 	c.printReactions(r.Reactions)
 	return nil
 }
 
-// printReactions prints a post's reactions on a line, if it has any.
+// printReactions prints a post's reactions on a line, if it has any, each
+// as its emoji.
 func (c *ctx) printReactions(rs []post.Reaction) {
 	if len(rs) == 0 {
 		return
 	}
 	var parts []string
 	for _, r := range rs {
-		parts = append(parts, fmt.Sprintf("%s ×%d (%s)", r.Reaction, len(r.Authors), strings.Join(r.Authors, ", ")))
+		parts = append(parts, fmt.Sprintf("%s ×%d (%s)", post.Emoji(r.Reaction), len(r.Authors), strings.Join(r.Authors, ", ")))
 	}
 	c.printf("reactions: %s\n", strings.Join(parts, " · "))
 }
