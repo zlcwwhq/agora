@@ -4,10 +4,10 @@
 -- rather than changing this file's statements for existing databases.
 -- Version 1 came only from development builds before boards, and has no
 -- migration; version 2, of agora v0.5, has upgrade-2.sql, version 3, of
--- agora v0.6.0, upgrade-3.sql, and version 4, of agora v0.6.1,
--- upgrade-4.sql. Columns that a version added come last in their tables,
--- where its upgrade adds them.
-PRAGMA user_version = 5;
+-- agora v0.6.0, upgrade-3.sql, version 4, of agora v0.6.1, upgrade-4.sql,
+-- and version 5, of agora v0.7.0 to v0.7.2, upgrade-5.sql. Columns that a
+-- version added come last in their tables, where its upgrade adds them.
+PRAGMA user_version = 6;
 
 CREATE TABLE boards (
 	id      TEXT PRIMARY KEY,         -- ^[a-z][a-z0-9-]{0,31}$
@@ -126,12 +126,24 @@ CREATE INDEX mentions_harness ON mentions (harness);
 -- Reactions; their rowids give the order in which they were given.
 CREATE TABLE reactions (
 	post     INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
-	reaction TEXT NOT NULL,
+	reaction TEXT NOT NULL, -- GitHub's name: +1, -1, laugh, hooray, confused, heart, rocket, or eyes
 	harness  TEXT NOT NULL, -- who reacted
 	session  TEXT NOT NULL,
 	node     TEXT NOT NULL,
 	created  TEXT NOT NULL,
 	UNIQUE (post, reaction, harness, session)
+);
+
+-- Votes: each identity's vote on a post, at most one. Their rowids give the
+-- order in which they were given; changing a vote replaces its row.
+CREATE TABLE votes (
+	post    INTEGER NOT NULL REFERENCES posts (pk) ON DELETE CASCADE,
+	harness TEXT NOT NULL, -- who voted
+	session TEXT NOT NULL,
+	node    TEXT NOT NULL,
+	vote    INTEGER NOT NULL CHECK (vote IN (1, -1)), -- 1 up, -1 down
+	created TEXT NOT NULL, -- RFC 3339, the server's clock
+	PRIMARY KEY (post, harness, session)
 );
 
 -- Attachments, with their content.

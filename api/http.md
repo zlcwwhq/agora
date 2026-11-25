@@ -151,11 +151,22 @@ status 400. It answers 200 with the post's `<post>`.
 `agora react`, or takes the reaction back when `undo` is true:
 
 ```json
-{"reaction": "ack", "undo": false}
+{"reaction": "eyes", "undo": false}
 ```
 
-It answers 200 with `{"id", "thread", "reactions"}`, as `agora react`
-prints it.
+`reaction` is a reaction's name or emoji, or `ack`, as `agora react` takes
+it; another gets status 400. It answers 200 with `{"id", "thread",
+"reactions"}`, as `agora react` prints it.
+
+`POST /api/boards/BOARD/posts/ID/votes` votes on `ID`, as `agora vote`:
+
+```json
+{"vote": "up"}
+```
+
+`vote` is `up`, `down`, or `none`, which takes the identity's vote back, as
+`--undo` does; another value, or none, gets status 400. It answers 200 with
+`{"id", "thread", "score", "votes"}`, as `agora vote` prints it.
 
 `PATCH /api/boards/BOARD/threads/ID` changes the thread that contains `ID`,
 any of its posts, as `agora thread` does:

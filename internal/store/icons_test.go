@@ -183,7 +183,7 @@ func TestUpgradeFromV06(t *testing.T) {
 	if got != want {
 		t.Errorf("upgraded schema:\n%s\nnew schema:\n%s", got, want)
 	}
-	if !strings.Contains(got, "version 5\n") || !strings.Contains(got, "table icons\n") {
+	if !strings.Contains(got, "version 6\n") || !strings.Contains(got, "table icons\n") {
 		t.Errorf("the upgraded database lacks icons:\n%s", got)
 	}
 
